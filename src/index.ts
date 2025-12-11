@@ -22,6 +22,12 @@ interface HState {
 const emit = (el: Element, type: string, detail: object = {}): boolean =>
   el.dispatchEvent(new CustomEvent(`h:${type}`, { detail, bubbles: true, cancelable: true }))
 
+const doScroll = (el: Element, scroll: string): void => {
+  if (scroll === 'top') window.scrollTo({ top: 0, behavior: 'smooth' })
+  else if (scroll === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+  else (scroll === 'target' ? el : document.querySelector(scroll))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 const attr = (el: Element, name: string, fallback = ''): string =>
   el.getAttribute(name) ?? fallback
 
@@ -44,6 +50,20 @@ const debounce = (fn: (e: Event) => void, ms: number) => {
 
 const throttle = (fn: (e: Event) => void, ms: number) => {
   let last = 0; return (e: Event) => { const now = Date.now(); if (now - last >= ms) { last = now; fn(e) } }
+}
+
+const processOOB = (html: string): string => {
+  if (!html.includes('h-oob')) return html
+  const t = document.createElement('template')
+  t.innerHTML = html
+  for (const oob of t.content.querySelectorAll('[h-oob]')) {
+    const swap = (oob.getAttribute('h-oob') || 'true') as SwapStrategy
+    oob.removeAttribute('h-oob')
+    const target = oob.id ? document.getElementById(oob.id) : null
+    if (target) doSwap(target, oob.outerHTML, swap === 'true' as any ? 'outer' : swap)
+    oob.remove()
+  }
+  return t.innerHTML
 }
 
 const doSwap = (target: Element, html: string, s: SwapStrategy): void => {
@@ -189,12 +209,22 @@ const init = (el: Element): void => {
         if (errTgt) doSwap(errTgt, html, 'inner')
         emit(el, 'error', { cfg, response: res, html })
       } else if (emit(el, 'after', { cfg, response: res, html })) {
+        html = processOOB(html)
+        const scrollAttr = attr(el, 'h-scroll')
+        const scrollEl = scrollAttr === 'target' ? cfg.target : null
         const doIt = () => doSwap(cfg.target, html, cfg.swap)
         if (document.startViewTransition) await document.startViewTransition(doIt).finished
         else doIt()
 
         emit(el, 'swapped', { cfg })
         if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg })
+
+        if (scrollAttr) {
+          if (scrollAttr === 'target' && cfg.swap === 'outer') {
+            const newEl = scrollEl?.id ? document.getElementById(scrollEl.id) : null
+            if (newEl) newEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          } else doScroll(cfg.target, scrollAttr)
+        }
 
         const push = el.hasAttribute('h-push-url'), replace = el.hasAttribute('h-replace-url')
         if (push || replace) {
@@ -217,7 +247,21 @@ const init = (el: Element): void => {
   if (mods.has('debounce')) handler = debounce(handler, parseInt(mods.get('debounce')!) || 300)
   if (mods.has('throttle')) handler = throttle(handler, parseInt(mods.get('throttle')!) || 300)
 
-  el.addEventListener(event, handler, { once: mods.has('once'), capture: mods.has('capture'), passive: mods.has('passive') })
+  if (event === 'intersect') {
+    const threshold = parseFloat(mods.get('threshold') ?? '0')
+    const rootMargin = mods.get('rootMargin') ?? '0px'
+    const obs = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          handler(new CustomEvent('intersect', { detail: entry }))
+          if (mods.has('once')) obs.disconnect()
+        }
+      }
+    }, { threshold, rootMargin })
+    obs.observe(el)
+  } else {
+    el.addEventListener(event, handler, { once: mods.has('once'), capture: mods.has('capture'), passive: mods.has('passive') })
+  }
   ;(el as any).__h = 1
   emit(el, 'inited', {})
 }
@@ -241,26 +285,63 @@ const initSSE = (el: Element): void => {
   routes.forEach((r, ev) => {
     es.addEventListener(ev, (e: MessageEvent) => {
       const t = document.querySelector(r.target)
-      if (t) { doSwap(t, e.data, r.swap); emit(el, 'sse-message', { event: ev, data: e.data }) }
+      if (t) { doSwap(t, processOOB(e.data), r.swap); emit(el, 'sse-message', { event: ev, data: e.data }) }
     })
   })
 
   es.onmessage = (e: MessageEvent) => {
     if (defTarget) {
       const t = document.querySelector(defTarget)
-      if (t) { doSwap(t, e.data, defSwap); emit(el, 'sse-message', { data: e.data }) }
+      if (t) { doSwap(t, processOOB(e.data), defSwap); emit(el, 'sse-message', { data: e.data }) }
     }
   }
   es.onerror = () => emit(el, 'sse-error', { url })
+}
+
+const initPoll = (el: Element): void => {
+  if ((el as any).__hpoll || ignore(el)) return
+  const val = attr(el, 'h-poll')
+  if (!val) return
+
+  const parts = val.trim().split(/\s+/)
+  const url = parts[0]
+  const intervalStr = parts[1] || '30s'
+  const m = intervalStr.match(/^(\d+)(ms|s|m)?$/)
+  const interval = m ? (m[2] === 'ms' ? +m[1] : m[2] === 'm' ? +m[1] * 60000 : +m[1] * 1000) : 30000
+  const swap = attr(el, 'h-swap', 'inner') as SwapStrategy
+  const tgtSel = attr(el, 'h-target')
+  const selSel = attr(el, 'h-select')
+
+  const poll = async () => {
+    if (!document.contains(el)) { clearInterval(id); return }
+    const target = tgtSel ? document.querySelector(tgtSel) ?? el : el
+    try {
+      const res = await fetch(url, { headers: { 'H-Request': 'true' } })
+      if (res.ok) {
+        let html = await res.text()
+        if (selSel) html = selectFragment(html, selSel)
+        html = processOOB(html)
+        doSwap(target, html, swap)
+        emit(el, 'poll', { url, html })
+      }
+    } catch {}
+  }
+
+  const id = setInterval(poll, interval)
+  ;(el as any).__hpoll = id
+  emit(el, 'poll-start', { url, interval })
 }
 
 const process = (node: Node): void => {
   if (!(node instanceof Element) || ignore(node)) return
   if (findMethod(node)) init(node)
   if (node.hasAttribute('h-sse')) initSSE(node)
-  node.querySelectorAll('a[h-get][href]').forEach(init)
-  node.querySelectorAll('form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action]').forEach(init)
-  node.querySelectorAll('[h-sse]').forEach(initSSE)
+  if (node.hasAttribute('h-poll')) initPoll(node)
+  node.querySelectorAll('a[h-get][href], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-poll]').forEach(el => {
+    if (findMethod(el)) init(el)
+    else if (el.hasAttribute('h-sse')) initSSE(el)
+    else if (el.hasAttribute('h-poll')) initPoll(el)
+  })
 }
 
 const observer = new MutationObserver(recs => { for (const r of recs) r.addedNodes.forEach(process) })

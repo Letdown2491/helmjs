@@ -259,9 +259,101 @@
     </div>
   </section>
 
-  <!-- Test 14: SSE (Mock) -->
+  <!-- Test 14: h-scroll -->
   <section>
-    <h2>14a. Server-Sent Events (Mock)</h2>
+    <h2>14. Scroll Control (h-scroll)</h2>
+    <p>Click links to load content and scroll</p>
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <a href="/api/long-content" h-get h-target="#scroll-target" h-scroll="top" class="button">Load & Scroll Top</a>
+      <a href="/api/long-content" h-get h-target="#scroll-target" h-scroll="bottom" class="button">Load & Scroll Bottom</a>
+      <a href="/api/long-content" h-get h-target="#scroll-target" h-scroll="target" class="button">Load & Scroll to Target</a>
+      <a href="/api/long-content" h-get h-target="#scroll-target" h-scroll="#scroll-anchor" class="button">Load & Scroll to #anchor</a>
+    </div>
+    <div id="scroll-anchor" style="padding: 0.5rem; background: #e3f2fd; border-radius: 4px; margin-bottom: 1rem;">
+      This is #scroll-anchor - "Scroll to #anchor" will scroll here
+    </div>
+    <div id="scroll-target" style="max-height: 200px; overflow-y: auto; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+      <em>Content will load here</em>
+    </div>
+  </section>
+
+  <!-- Test 15: h-trigger="intersect" -->
+  <section>
+    <h2>15. Intersection Observer (h-trigger="intersect")</h2>
+    <p>Scroll down to trigger automatic loading (infinite scroll pattern)</p>
+    <div id="intersect-list" style="max-height: 200px; overflow-y: auto; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+      <div class="item" style="padding: 1rem; margin: 0.5rem 0; background: #fff; border-radius: 4px;">Item 1</div>
+      <div class="item" style="padding: 1rem; margin: 0.5rem 0; background: #fff; border-radius: 4px;">Item 2</div>
+      <div class="item" style="padding: 1rem; margin: 0.5rem 0; background: #fff; border-radius: 4px;">Item 3</div>
+      <a href="/api/more-items" h-get h-trigger="intersect once" h-target="#intersect-list" h-swap="append"
+         style="display: block; padding: 1rem; text-align: center; background: #e3f2fd; border-radius: 4px;">
+        ⏳ Loading more when visible...
+      </a>
+    </div>
+    <p><small>Scroll inside the box above to trigger the intersection observer</small></p>
+  </section>
+
+  <!-- Test 16: h-oob (Out-of-Band) -->
+  <section>
+    <h2>16. Out-of-Band Updates (h-oob)</h2>
+    <p>Single response updates multiple elements</p>
+    <form action="/api/post-with-oob" h-post h-target="#oob-timeline">
+      <input name="content" placeholder="Write something..." style="width: 200px;">
+      <button type="submit">Post</button>
+    </form>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+      <div>
+        <h4>Timeline (main target)</h4>
+        <div id="oob-timeline" style="min-height: 100px; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+          <em>Posts appear here</em>
+        </div>
+      </div>
+      <div>
+        <h4>Stats (updated via OOB)</h4>
+        <div id="oob-stats" style="padding: 0.5rem; background: #e8f5e9; border-radius: 4px;">
+          Post count: <span id="post-count">0</span>
+        </div>
+        <div id="oob-last-post" style="margin-top: 0.5rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px;">
+          Last post: <span id="last-post-time">Never</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Test 17: h-poll -->
+  <section>
+    <h2>17. Polling (h-poll)</h2>
+    <p>Auto-refresh content at intervals</p>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+      <div>
+        <h4>Every 2s</h4>
+        <div h-poll="/api/poll-time 2s" style="padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+          Waiting for first poll...
+        </div>
+      </div>
+      <div>
+        <h4>Every 5s (custom target)</h4>
+        <div h-poll="/api/poll-count 5s" h-target="#poll-target-custom">
+          <div id="poll-target-custom" style="padding: 0.5rem; background: #e3f2fd; border-radius: 4px;">
+            Waiting for first poll...
+          </div>
+        </div>
+      </div>
+      <div>
+        <h4>With OOB (3s)</h4>
+        <div h-poll="/api/poll-oob 3s" h-target="#poll-main">
+          <div id="poll-main" style="padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">Main content</div>
+        </div>
+        <div id="poll-oob-status" style="margin-top: 0.5rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px;">
+          OOB status: waiting
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Test 18: SSE (Mock) -->
+  <section>
+    <h2>18a. Server-Sent Events (Mock)</h2>
     <p>Simulated SSE - click buttons to send mock messages.</p>
     <button onclick="sendSSE('notification', '&lt;div class=\'notif\'&gt;🔔 New notification at ' + new Date().toLocaleTimeString() + '&lt;/div&gt;')" class="button">
       Send Notification
@@ -295,9 +387,9 @@
     </div>
   </section>
 
-  <!-- Test 14b: SSE (Real) -->
+  <!-- Test 18b: SSE (Real) -->
   <section>
-    <h2>14b. Server-Sent Events (Real Endpoint)</h2>
+    <h2>18b. Server-Sent Events (Real Endpoint)</h2>
     <p>Connect to a real SSE endpoint. This uses the native EventSource to test real servers.</p>
     <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
       <input type="text" id="sse-url-input" placeholder="Enter SSE endpoint URL..." style="flex: 1; padding: 0.5rem;">
@@ -330,6 +422,8 @@
     // Mock server responses (intercept fetch)
     let counter = 0;
     let itemCounter = 0;
+    let postCount = 0;
+    let pollCount = 0;
 
     window.fetch = async (url, options = {}) => {
       console.log(`[HelmJS] ${options.method || 'GET'} ${url}`);
@@ -425,6 +519,53 @@
         };
         html = pages[page] || `<h3>Page: ${page}</h3><p>Unknown page</p>`;
         html += `<p><small>Loaded at: ${new Date().toLocaleTimeString()}</small></p>`;
+      }
+      // New feature tests
+      else if (path === '/api/long-content') {
+        html = '<div style="padding: 1rem;">';
+        for (let i = 1; i <= 20; i++) {
+          html += `<p>Line ${i}: Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>`;
+        }
+        html += '</div>';
+      }
+      else if (path === '/api/more-items') {
+        html = `
+          <div class="item" style="padding: 1rem; margin: 0.5rem 0; background: #fff; border-radius: 4px;">Item 4 (loaded via intersect)</div>
+          <div class="item" style="padding: 1rem; margin: 0.5rem 0; background: #fff; border-radius: 4px;">Item 5 (loaded via intersect)</div>
+          <div class="item" style="padding: 1rem; margin: 0.5rem 0; background: #fff; border-radius: 4px;">Item 6 (loaded via intersect)</div>
+          <p style="text-align: center; color: #666;">No more items</p>
+        `;
+      }
+      else if (path === '/api/post-with-oob') {
+        const body = options.body;
+        const content = body.get('content') || 'Empty post';
+        postCount++;
+        const time = new Date().toLocaleTimeString();
+        // Main response goes to timeline
+        html = `<div style="padding: 0.5rem; margin: 0.25rem 0; background: #fff; border-radius: 4px;">
+          <strong>Post #${postCount}:</strong> ${content} <small>(${time})</small>
+        </div>`;
+        // OOB updates go to other targets
+        html += `<div id="oob-stats" h-oob="outer" style="padding: 0.5rem; background: #e8f5e9; border-radius: 4px;">
+          Post count: <span id="post-count">${postCount}</span>
+        </div>`;
+        html += `<div id="oob-last-post" h-oob="outer" style="margin-top: 0.5rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px;">
+          Last post: <span id="last-post-time">${time}</span>
+        </div>`;
+      }
+      else if (path === '/api/poll-time') {
+        html = `<div>Time: ${new Date().toLocaleTimeString()}</div>`;
+      }
+      else if (path === '/api/poll-count') {
+        pollCount++;
+        html = `<div>Poll #${pollCount} at ${new Date().toLocaleTimeString()}</div>`;
+      }
+      else if (path === '/api/poll-oob') {
+        pollCount++;
+        html = `<div>Main: Poll #${pollCount}</div>`;
+        html += `<div id="poll-oob-status" h-oob="outer" style="margin-top: 0.5rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px;">
+          OOB status: Updated at ${new Date().toLocaleTimeString()} (poll #${pollCount})
+        </div>`;
       }
 
       return new Response(html, {
