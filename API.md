@@ -33,7 +33,7 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 3. **Strict HATEOAS compliance** - The client never invents URLs. All actions come from server-provided hypermedia controls.
 
-4. **Minimal footprint** - Every byte must be justified. No dependencies, no dev-only code. Currently ~3.2KB gzipped.
+4. **Minimal footprint** - Every byte must be justified. No dependencies, no dev-only code. Currently ~3.4KB gzipped.
 
 5. **Intuitive defaults** - Zero config for common cases. Opinionated defaults enforce good hypermedia practices.
 
@@ -41,13 +41,13 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 | Attribute | Allowed Elements | URL Source |
 |-----------|------------------|------------|
-| `h-get` | `<a>` only | `href` attribute |
+| `h-get` | `<a>` or `<form>` | `href` or `action` attribute |
 | `h-post` | `<form>` only | `action` attribute |
 | `h-put` | `<form>` only | `action` attribute |
 | `h-patch` | `<form>` only | `action` attribute |
 | `h-delete` | `<form>` only | `action` attribute |
 
-These constraints are intentional. Links fetch data, forms mutate data.
+GET requests work on both links and forms. Forms with `h-get` serialize their data as query parameters, enabling search and filtering. Mutation methods (POST, PUT, PATCH, DELETE) are restricted to forms.
 
 ---
 
@@ -87,7 +87,7 @@ test/
 
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
-| `h-get` | `<a>` | AJAX GET request. URL from `href` attribute. |
+| `h-get` | `<a>`, `<form>` | AJAX GET request. URL from `href` (links) or `action` (forms). Forms serialize data as query params. |
 | `h-post` | `<form>` | AJAX POST request. URL from `action` attribute. |
 | `h-put` | `<form>` | AJAX PUT request. URL from `action` attribute. |
 | `h-patch` | `<form>` | AJAX PATCH request. URL from `action` attribute. |
@@ -107,7 +107,8 @@ test/
 
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
-| `h-trigger` | any | Event that triggers the request. Default: `submit` for forms, `click` for links. |
+| `h-trigger` | any | Event that triggers the request. Default: `submit` for forms, `click` for links. Supports multiple comma-separated triggers. |
+| `h-sync` | any | Request coordination: `abort` (cancel in-flight), `drop` (ignore if in-flight). |
 | `h-confirm` | any | Show a confirmation dialog with this message before sending the request. |
 | `h-indicator` | any | CSS selector for element(s) to receive `h-loading` class during request. |
 | `h-headers` | any | JSON object of custom headers to include in the request. |
@@ -177,12 +178,26 @@ The `h-trigger` attribute specifies when to send the request.
 ```html
 <a href="/page" h-get h-trigger="click">Click me</a>
 <form action="/search" h-get h-trigger="submit">...</form>
-<input h-get href="/search" h-trigger="input">
 ```
 
 Default triggers:
 - `<form>` elements: `submit`
 - `<a>` elements: `click`
+
+### Multiple Triggers
+
+Specify multiple triggers separated by commas. Each trigger can have its own modifiers:
+
+```html
+<form action="/search" h-get h-trigger="input debounce:300 from:#q, submit">
+  <input id="q" name="q" placeholder="Search...">
+  <button>Search</button>
+</form>
+```
+
+This form triggers on:
+- Debounced input events from `#q`
+- Form submit (button click or Enter key)
 
 ### Modifiers
 
@@ -202,6 +217,21 @@ h-trigger="intersect once threshold:0.5"
 | `once` | Only trigger once, then remove listener. |
 | `capture` | Use capture phase for event listener. |
 | `passive` | Mark listener as passive. |
+| `from:selector` | Listen for events on another element instead of self. |
+
+### The `from:` Modifier
+
+Listen for events on a different element. Useful for forms that should react to child input events:
+
+```html
+<form action="/search" h-get h-target="#results" h-trigger="input debounce:300 from:#search-input">
+  <input id="search-input" name="q">
+  <button>Search</button>
+</form>
+<div id="results"></div>
+```
+
+The form listens for `input` events on `#search-input`, but the form itself handles the request (using its `action`, `h-target`, etc.).
 
 ### Intersection Observer
 
@@ -493,6 +523,43 @@ Add CSS to define transitions:
   animation-duration: 200ms;
 }
 ```
+
+---
+
+## Request Coordination
+
+The `h-sync` attribute controls how concurrent requests from the same element are handled.
+
+### Abort Mode
+
+Cancel any in-flight request when a new one starts. Ideal for live search where only the latest results matter:
+
+```html
+<form action="/search" h-get h-target="#results"
+      h-trigger="input debounce:300 from:#q, submit"
+      h-sync="abort">
+  <input id="q" name="q">
+</form>
+```
+
+Without `h-sync="abort"`, fast typing could cause race conditions where an older, slower request overwrites newer results.
+
+### Drop Mode
+
+Ignore new requests while one is in-flight. Useful when you want to prevent duplicate requests entirely:
+
+```html
+<button h-get href="/action" h-sync="drop">
+  Click me (ignores rapid clicks)
+</button>
+```
+
+### Sync Modes
+
+| Value | Behavior |
+|-------|----------|
+| `abort` | Abort in-flight request, start new one |
+| `drop` | Drop new request if one is in-flight |
 
 ---
 

@@ -82,7 +82,7 @@
 </head>
 <body>
   <h1>HelmJS Test Page</h1>
-  <p><em>Semantic HTML: h-get on &lt;a&gt;, h-post/delete on &lt;form&gt;</em></p>
+  <p><em>Semantic HTML: h-get on &lt;a&gt; or &lt;form&gt;, h-post/delete on &lt;form&gt;</em></p>
 
   <!-- Test 1: Basic GET with <a> -->
   <section>
@@ -351,9 +351,96 @@
     </div>
   </section>
 
-  <!-- Test 18: SSE (Mock) -->
+  <!-- Test 18: h-get on Forms -->
   <section>
-    <h2>18a. Server-Sent Events (Mock)</h2>
+    <h2>18. h-get on Forms (Query Params)</h2>
+    <p>Forms with h-get serialize data as query parameters</p>
+    <form action="/api/search" h-get h-target="#form-get-result">
+      <input name="q" placeholder="Search query" value="test">
+      <input name="category" placeholder="Category" value="books">
+      <button type="submit">Search (GET)</button>
+    </form>
+    <div id="form-get-result" style="margin-top: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+      <em>Submit to see query params in URL</em>
+    </div>
+  </section>
+
+  <!-- Test 19: Multiple Triggers -->
+  <section>
+    <h2>19. Multiple Triggers (Comma-Separated)</h2>
+    <p>Form triggers on both debounced input AND submit</p>
+    <form action="/api/search" h-get h-target="#multi-trigger-result" h-trigger="input debounce:500 from:#multi-input, submit">
+      <input id="multi-input" name="q" placeholder="Type to search (500ms debounce) or press Enter">
+      <button type="submit">Search</button>
+    </form>
+    <div id="multi-trigger-result" style="margin-top: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+      <em>Results appear here</em>
+    </div>
+    <p><small>Try typing slowly (debounce fires) or pressing Enter/clicking button (submit fires)</small></p>
+  </section>
+
+  <!-- Test 20: from: Modifier -->
+  <section>
+    <h2>20. from: Modifier (Cross-Element Events)</h2>
+    <p>Form listens for input events from a separate element</p>
+    <input id="external-input" placeholder="Type here (external input)" style="margin-bottom: 0.5rem; display: block; width: 100%; box-sizing: border-box;">
+    <form action="/api/search" h-get h-target="#from-result" h-trigger="input debounce:300 from:#external-input">
+      <input name="q" id="from-hidden-q" type="hidden">
+      <span style="color: #666;">Form listens to #external-input above</span>
+    </form>
+    <div id="from-result" style="margin-top: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+      <em>Results appear here when you type in the input above</em>
+    </div>
+  </section>
+
+  <!-- Test 21: h-sync="abort" -->
+  <section>
+    <h2>21. h-sync="abort" (Cancel In-Flight)</h2>
+    <p>New requests abort previous ones - prevents race conditions</p>
+    <form action="/api/slow-search" h-get h-target="#sync-abort-result" h-trigger="input debounce:200 from:#sync-abort-input, submit" h-sync="abort">
+      <input id="sync-abort-input" name="q" placeholder="Type rapidly to test abort">
+      <button type="submit">Search</button>
+    </form>
+    <div id="sync-abort-result" style="margin-top: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+      <em>Only the last request's result should appear</em>
+    </div>
+    <div id="sync-abort-log" class="log" style="margin-top: 0.5rem;"></div>
+    <p><small>Watch the log - aborted requests show "ABORTED"</small></p>
+  </section>
+
+  <!-- Test 22: h-sync="drop" -->
+  <section>
+    <h2>22. h-sync="drop" (Ignore New Requests)</h2>
+    <p>New requests are dropped while one is in-flight</p>
+    <a href="/api/slow" h-get h-target="#sync-drop-result" h-sync="drop" class="button" id="sync-drop-link">
+      Click Multiple Times (only first fires)
+    </a>
+    <div id="sync-drop-result" style="margin-top: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+      <em>Click the button rapidly</em>
+    </div>
+    <div id="sync-drop-log" class="log" style="margin-top: 0.5rem;"></div>
+  </section>
+
+  <!-- Test 23: Live Search (Full Example) -->
+  <section>
+    <h2>23. Live Search (Complete Example)</h2>
+    <p>Combines: h-get on form, multiple triggers, from:, and h-sync="abort"</p>
+    <form action="/api/live-search" h-get h-target="#live-search-result"
+          h-trigger="input debounce:300 from:#live-search-q, submit"
+          h-sync="abort"
+          h-indicator="#live-search-spinner">
+      <input id="live-search-q" name="q" placeholder="Search users..." autocomplete="off">
+      <button type="submit">Search</button>
+      <span id="live-search-spinner" class="spinner">Searching...</span>
+    </form>
+    <div id="live-search-result" style="margin-top: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-radius: 4px; min-height: 100px;">
+      <em>Start typing to search...</em>
+    </div>
+  </section>
+
+  <!-- Test 24: SSE (Mock) -->
+  <section>
+    <h2>24a. Server-Sent Events (Mock)</h2>
     <p>Simulated SSE - click buttons to send mock messages.</p>
     <button onclick="sendSSE('notification', '&lt;div class=\'notif\'&gt;🔔 New notification at ' + new Date().toLocaleTimeString() + '&lt;/div&gt;')" class="button">
       Send Notification
@@ -387,9 +474,9 @@
     </div>
   </section>
 
-  <!-- Test 18b: SSE (Real) -->
+  <!-- Test 24b: SSE (Real) -->
   <section>
-    <h2>18b. Server-Sent Events (Real Endpoint)</h2>
+    <h2>24b. Server-Sent Events (Real Endpoint)</h2>
     <p>Connect to a real SSE endpoint. This uses the native EventSource to test real servers.</p>
     <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
       <input type="text" id="sse-url-input" placeholder="Enter SSE endpoint URL..." style="flex: 1; padding: 0.5rem;">
@@ -424,6 +511,7 @@
     let itemCounter = 0;
     let postCount = 0;
     let pollCount = 0;
+    let searchRequestId = 0;
 
     window.fetch = async (url, options = {}) => {
       console.log(`[HelmJS] ${options.method || 'GET'} ${url}`);
@@ -567,6 +655,55 @@
           OOB status: Updated at ${new Date().toLocaleTimeString()} (poll #${pollCount})
         </div>`;
       }
+      // New v0.3.0 feature tests
+      else if (path === '/api/search') {
+        const q = search.get('q') || '';
+        const category = search.get('category') || '';
+        html = `<div>
+          <p><strong>Search Results</strong></p>
+          <p>Query: "${q}"</p>
+          ${category ? `<p>Category: "${category}"</p>` : ''}
+          <p>URL: ${url}</p>
+          <p><small>Time: ${new Date().toLocaleTimeString()}</small></p>
+        </div>`;
+      }
+      else if (path === '/api/slow-search') {
+        const q = search.get('q') || '';
+        const requestId = ++searchRequestId;
+        const abortLog = document.getElementById('sync-abort-log');
+        if (abortLog) abortLog.innerHTML += `<div>[${new Date().toLocaleTimeString()}] Request #${requestId} started for "${q}"</div>`;
+
+        try {
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(resolve, 600 + Math.random() * 400);
+            options.signal?.addEventListener('abort', () => {
+              clearTimeout(timeout);
+              reject(new DOMException('Aborted', 'AbortError'));
+            });
+          });
+          if (abortLog) abortLog.innerHTML += `<div style="color: green;">[${new Date().toLocaleTimeString()}] Request #${requestId} completed</div>`;
+          html = `<div>
+            <p>Results for "${q}" (request #${requestId})</p>
+            <p><small>Completed at: ${new Date().toLocaleTimeString()}</small></p>
+          </div>`;
+        } catch (e) {
+          if (abortLog) abortLog.innerHTML += `<div style="color: red;">[${new Date().toLocaleTimeString()}] Request #${requestId} ABORTED</div>`;
+          throw e;
+        }
+      }
+      else if (path === '/api/live-search') {
+        const q = search.get('q') || '';
+        await new Promise(r => setTimeout(r, 300 + Math.random() * 200));
+        const users = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry'];
+        const filtered = q ? users.filter(u => u.toLowerCase().includes(q.toLowerCase())) : users;
+        html = `<div>
+          <p><strong>${filtered.length} result(s) for "${q}"</strong></p>
+          <ul style="margin: 0.5rem 0; padding-left: 1.5rem;">
+            ${filtered.map(u => `<li>${u}</li>`).join('')}
+          </ul>
+          <p><small>Searched at: ${new Date().toLocaleTimeString()}</small></p>
+        </div>`;
+      }
 
       return new Response(html, {
         status: 200,
@@ -588,6 +725,32 @@
         if (evt === 'h:swapped' || evt === 'h:error') indicator.classList.remove('loading');
       });
     });
+
+    // h-sync="drop" logging
+    const syncDropLink = document.getElementById('sync-drop-link');
+    const syncDropLog = document.getElementById('sync-drop-log');
+    let dropClickCount = 0;
+    if (syncDropLink && syncDropLog) {
+      syncDropLink.addEventListener('click', () => {
+        dropClickCount++;
+        syncDropLog.innerHTML += `<div>[${new Date().toLocaleTimeString()}] Click #${dropClickCount}</div>`;
+      });
+      syncDropLink.addEventListener('h:before', () => {
+        syncDropLog.innerHTML += `<div style="color: blue;">[${new Date().toLocaleTimeString()}] Request started</div>`;
+      });
+      syncDropLink.addEventListener('h:swapped', () => {
+        syncDropLog.innerHTML += `<div style="color: green;">[${new Date().toLocaleTimeString()}] Request completed</div>`;
+      });
+    }
+
+    // Copy external input value to hidden form field for from: test
+    const externalInput = document.getElementById('external-input');
+    const hiddenQ = document.getElementById('from-hidden-q');
+    if (externalInput && hiddenQ) {
+      externalInput.addEventListener('input', () => {
+        hiddenQ.value = externalInput.value;
+      });
+    }
 
     // Mock SSE - store reference to dispatch events manually
     let mockSSE = null;

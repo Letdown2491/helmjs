@@ -129,12 +129,12 @@ const morphNodes = (old: Element, next: Element): void => {
 }
 
 const findMethod = (el: Element): { method: HttpMethod; action: string } | null => {
+  const tag = el.tagName
   if (el.hasAttribute('h-get')) {
-    if (el.tagName !== 'A') return null
-    const href = el.getAttribute('href')
-    return href ? { method: 'GET', action: href } : null
+    const url = el.getAttribute(tag === 'A' ? 'href' : tag === 'FORM' ? 'action' : '')
+    return url ? { method: 'GET', action: url } : null
   }
-  if (el.tagName === 'FORM') {
+  if (tag === 'FORM') {
     const action = el.getAttribute('action')
     if (!action) return null
     for (const m of ['post', 'put', 'patch', 'delete'] as const)
@@ -148,11 +148,19 @@ const init = (el: Element): void => {
   const methodInfo = findMethod(el)
   if (!methodInfo || !emit(el, 'init', {})) return
 
-  const { event, mods } = parseTrigger(attr(el, 'h-trigger', el.tagName === 'FORM' ? 'submit' : 'click'))
+  const defaultTrigger = el.tagName === 'FORM' ? 'submit' : 'click'
+  const triggers = attr(el, 'h-trigger', defaultTrigger).split(',').map(t => t.trim()).filter(Boolean)
 
-  let handler: (evt: Event) => void = async (evt: Event): Promise<void> => {
+  const sync = attr(el, 'h-sync')
+
+  const baseHandler = async (evt: Event): Promise<void> => {
     const confirmMsg = attr(el, 'h-confirm')
     if (confirmMsg && !confirm(confirmMsg)) return
+
+    if (sync === 'abort' && (el as any).__hAbort) (el as any).__hAbort.abort()
+    else if (sync === 'drop' && (el as any).__hAbort) return
+    const controller = sync ? new AbortController() : undefined
+    if (controller) (el as any).__hAbort = controller
 
     const form = el instanceof HTMLFormElement ? el : null
     const body = form ? new FormData(form) : null
@@ -165,16 +173,17 @@ const init = (el: Element): void => {
     const hdrAttr = attr(el, 'h-headers')
     let headers: Record<string, string> = { 'H-Request': 'true' }
     if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
+    const isGet = methodInfo.method === 'GET'
 
     const cfg: HConfig = {
       trigger: evt, action: methodInfo.action, method: methodInfo.method,
-      target, swap, body: methodInfo.method[0] === 'G' || methodInfo.method[0] === 'D' ? null : body, headers
+      target, swap, body: isGet || methodInfo.method === 'DELETE' ? null : body, headers
     }
 
     evt.preventDefault()
     if (!emit(el, 'before', { cfg })) return
 
-    const isMut = cfg.method !== 'GET', noDisable = el.hasAttribute('h-no-disable')
+    const isMut = !isGet, noDisable = el.hasAttribute('h-no-disable')
     const disEls: Element[] = []
     if ((isMut && !noDisable) || el.hasAttribute('h-disabled')) {
       if (el.tagName === 'FORM') disEls.push(...el.querySelectorAll('button, input[type="submit"]'))
@@ -198,7 +207,7 @@ const init = (el: Element): void => {
     }
 
     try {
-      const res = await fetch(url, { method: cfg.method, headers: cfg.headers, body: cfg.body })
+      const res = await fetch(url, { method: cfg.method, headers: cfg.headers, body: cfg.body, signal: controller?.signal })
       let html = await res.text()
       const selSel = attr(el, 'h-select')
       if (selSel) html = selectFragment(html, selSel)
@@ -234,8 +243,10 @@ const init = (el: Element): void => {
         }
       }
     } catch (error) {
+      if ((error as Error).name === 'AbortError') return
       emit(el, 'error', { cfg, error })
     } finally {
+      if (controller) (el as any).__hAbort = null
       for (const d of disEls) {
         if (d.tagName === 'A') { d.classList.remove('h-disabled'); d.removeAttribute('aria-disabled') }
         else d.removeAttribute('disabled')
@@ -244,23 +255,31 @@ const init = (el: Element): void => {
     }
   }
 
-  if (mods.has('debounce')) handler = debounce(handler, parseInt(mods.get('debounce')!) || 300)
-  if (mods.has('throttle')) handler = throttle(handler, parseInt(mods.get('throttle')!) || 300)
+  for (const triggerSpec of triggers) {
+    const { event, mods } = parseTrigger(triggerSpec)
+    let handler: (evt: Event) => void = baseHandler
 
-  if (event === 'intersect') {
-    const threshold = parseFloat(mods.get('threshold') ?? '0')
-    const rootMargin = mods.get('rootMargin') ?? '0px'
-    const obs = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          handler(new CustomEvent('intersect', { detail: entry }))
-          if (mods.has('once')) obs.disconnect()
+    if (mods.has('debounce')) handler = debounce(handler, parseInt(mods.get('debounce')!) || 300)
+    if (mods.has('throttle')) handler = throttle(handler, parseInt(mods.get('throttle')!) || 300)
+
+    const fromSel = mods.get('from')
+    const listenTarget = fromSel ? document.querySelector(fromSel) : el
+
+    if (event === 'intersect') {
+      const threshold = parseFloat(mods.get('threshold') ?? '0')
+      const rootMargin = mods.get('rootMargin') ?? '0px'
+      const obs = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            handler(new CustomEvent('intersect', { detail: entry }))
+            if (mods.has('once')) obs.disconnect()
+          }
         }
-      }
-    }, { threshold, rootMargin })
-    obs.observe(el)
-  } else {
-    el.addEventListener(event, handler, { once: mods.has('once'), capture: mods.has('capture'), passive: mods.has('passive') })
+      }, { threshold, rootMargin })
+      obs.observe(el)
+    } else if (listenTarget) {
+      listenTarget.addEventListener(event, handler, { once: mods.has('once'), capture: mods.has('capture'), passive: mods.has('passive') })
+    }
   }
   ;(el as any).__h = 1
   emit(el, 'inited', {})
@@ -332,16 +351,16 @@ const initPoll = (el: Element): void => {
   emit(el, 'poll-start', { url, interval })
 }
 
+const initEl = (el: Element): void => {
+  if (findMethod(el)) init(el)
+  if (el.hasAttribute('h-sse')) initSSE(el)
+  if (el.hasAttribute('h-poll')) initPoll(el)
+}
+
 const process = (node: Node): void => {
   if (!(node instanceof Element) || ignore(node)) return
-  if (findMethod(node)) init(node)
-  if (node.hasAttribute('h-sse')) initSSE(node)
-  if (node.hasAttribute('h-poll')) initPoll(node)
-  node.querySelectorAll('a[h-get][href], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-poll]').forEach(el => {
-    if (findMethod(el)) init(el)
-    else if (el.hasAttribute('h-sse')) initSSE(el)
-    else if (el.hasAttribute('h-poll')) initPoll(el)
-  })
+  initEl(node)
+  node.querySelectorAll('a[h-get][href], form[h-get][action], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-poll]').forEach(initEl)
 }
 
 const observer = new MutationObserver(recs => { for (const r of recs) r.addedNodes.forEach(process) })
