@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HelmJS Test</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    section {
+      margin: 2rem 0;
+      padding: 1rem;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+    h2 { margin-top: 0; }
+    button, a.button {
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      display: inline-block;
+      text-decoration: none;
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      color: inherit;
+    }
+    a.button:hover { background: #e0e0e0; }
+    input, textarea {
+      padding: 0.5rem;
+      margin: 0.25rem 0;
+    }
+    #results li {
+      padding: 0.5rem;
+      background: #f5f5f5;
+      margin: 0.25rem 0;
+      border-radius: 4px;
+    }
+    .indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      background: #ccc;
+      border-radius: 50%;
+      margin-left: 0.5rem;
+    }
+    .indicator.loading { background: #4caf50; animation: pulse 0.5s infinite; }
+    @keyframes pulse { 50% { opacity: 0.5; } }
+    .spinner {
+      display: none;
+      color: #666;
+    }
+    .spinner.h-loading {
+      display: inline;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    a.h-disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    pre {
+      background: #f5f5f5;
+      padding: 1rem;
+      overflow-x: auto;
+      border-radius: 4px;
+    }
+    .log {
+      font-size: 0.875rem;
+      color: #666;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    form { display: inline; }
+  </style>
+</head>
+<body>
+  <h1>HelmJS Test Page</h1>
+  <p><em>Semantic HTML: h-get on &lt;a&gt;, h-post/delete on &lt;form&gt;</em></p>
+
+  <!-- Test 1: Basic GET with <a> -->
+  <section>
+    <h2>1. Basic GET (anchor)</h2>
+    <a href="/api/hello" h-get h-target="#hello-result" class="button">Load Message</a>
+    <div id="hello-result"><em>Click link to load</em></div>
+  </section>
+
+  <!-- Test 2: Swap Strategies -->
+  <section>
+    <h2>2. Swap Strategies</h2>
+    <div>
+      <a href="/api/item" h-get h-target="#swap-target" h-swap="inner" class="button">inner</a>
+      <a href="/api/item" h-get h-target="#swap-target" h-swap="prepend" class="button">prepend</a>
+      <a href="/api/item" h-get h-target="#swap-target" h-swap="append" class="button">append</a>
+      <a href="/api/clear" h-get h-target="#swap-target" h-swap="inner" class="button">clear</a>
+    </div>
+    <div id="swap-target" style="min-height: 50px; margin-top: 1rem; padding: 0.5rem; background: #f9f9f9; border-radius: 4px;">
+      <em>Target area</em>
+    </div>
+  </section>
+
+  <!-- Test 3: Morph (focus preservation) -->
+  <section>
+    <h2>3. Morph - Focus Preservation (default swap)</h2>
+    <p>Type in the input, then click refresh. Your text should be preserved!</p>
+    <a href="/api/morph-demo" h-get h-target="#morph-container" class="button">Refresh (morph default)</a>
+    <a href="/api/morph-demo" h-get h-target="#morph-container" h-swap="inner" class="button">Refresh with innerHTML</a>
+    <div id="morph-container">
+      <input type="text" id="search-input" placeholder="Type here..." style="margin: 1rem 0; display: block;">
+      <ul id="results">
+        <li id="r1">Item 1</li>
+        <li id="r2">Item 2</li>
+        <li id="r3">Item 3</li>
+      </ul>
+      <p>Counter: <span id="counter">0</span></p>
+    </div>
+  </section>
+
+  <!-- Test 4: Form POST -->
+  <section>
+    <h2>4. Form POST</h2>
+    <form action="/api/form" h-post h-target="#form-result">
+      <div><input name="name" placeholder="Your name"></div>
+      <div><input name="email" type="email" placeholder="Your email"></div>
+      <button type="submit">Submit</button>
+    </form>
+    <div id="form-result"></div>
+  </section>
+
+  <!-- Test 5: Throttle -->
+  <section>
+    <h2>5. Throttle (1000ms)</h2>
+    <p>Click rapidly - only fires once per second</p>
+    <a href="/api/time" h-get h-target="#throttle-result" h-trigger="click throttle:1000" class="button">
+      Get Time (throttled)
+    </a>
+    <div id="throttle-result"></div>
+  </section>
+
+  <!-- Test 6: Events -->
+  <section>
+    <h2>6. Event Hooks</h2>
+    <a href="/api/slow" h-get h-target="#event-result" id="event-link" class="button">
+      Load (watch events below)
+    </a>
+    <span class="indicator" id="loading-indicator"></span>
+    <div id="event-result"></div>
+    <div class="log" id="event-log"></div>
+  </section>
+
+  <!-- Test 7: DELETE with Confirm (form-based) -->
+  <section>
+    <h2>7. DELETE with Confirm</h2>
+    <div id="delete-list">
+      <div id="item-1" style="padding: 0.5rem; background: #f5f5f5; margin: 0.25rem 0; border-radius: 4px;">
+        Item 1
+        <form action="/api/item/1" h-delete h-target="#item-1" h-swap="outer" h-confirm="Delete Item 1?">
+          <button type="submit">Delete</button>
+        </form>
+      </div>
+      <div id="item-2" style="padding: 0.5rem; background: #f5f5f5; margin: 0.25rem 0; border-radius: 4px;">
+        Item 2
+        <form action="/api/item/2" h-delete h-target="#item-2" h-swap="outer" h-confirm="Delete Item 2?">
+          <button type="submit">Delete</button>
+        </form>
+      </div>
+      <div id="item-3" style="padding: 0.5rem; background: #f5f5f5; margin: 0.25rem 0; border-radius: 4px;">
+        Item 3
+        <form action="/api/item/3" h-delete h-target="#item-3" h-swap="outer" h-confirm="Delete Item 3?">
+          <button type="submit">Delete</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- Test 8: Auto-Disable for Mutations -->
+  <section>
+    <h2>8. Auto-Disable for Mutations</h2>
+    <p>POST auto-disables. GET (on anchors) needs explicit <code>h-disabled</code>.</p>
+    <form action="/api/slow" h-post h-target="#disabled-result-1">
+      <button type="submit">POST (auto-disables)</button>
+    </form>
+    <a href="/api/slow" h-get h-target="#disabled-result-2" class="button">
+      GET (no auto-disable)
+    </a>
+    <a href="/api/slow" h-get h-target="#disabled-result-3" h-disabled class="button">
+      GET with h-disabled
+    </a>
+    <form action="/api/slow" h-post h-target="#disabled-result-4" h-no-disable>
+      <button type="submit">POST with h-no-disable</button>
+    </form>
+    <div id="disabled-result-1"></div>
+    <div id="disabled-result-2"></div>
+    <div id="disabled-result-3"></div>
+    <div id="disabled-result-4"></div>
+  </section>
+
+  <!-- Test 9: Loading Indicator -->
+  <section>
+    <h2>9. Loading Indicator</h2>
+    <p>Spinner shows during request</p>
+    <a href="/api/slow" h-get h-target="#indicator-result" h-indicator="#spinner" class="button">
+      Load with Spinner
+    </a>
+    <span id="spinner" class="spinner">Loading...</span>
+    <div id="indicator-result"></div>
+  </section>
+
+  <!-- Test 10: Custom Headers -->
+  <section>
+    <h2>10. Custom Headers</h2>
+    <p>Check console/network tab for custom headers</p>
+    <a href="/api/headers" h-get h-target="#headers-result"
+       h-headers='{"X-Custom-Token": "abc123", "X-Request-Id": "req-456"}' class="button">
+      Send with Custom Headers
+    </a>
+    <div id="headers-result"></div>
+  </section>
+
+  <!-- Test 11: h-select (extract fragment) -->
+  <section>
+    <h2>11. h-select (extract fragment)</h2>
+    <p>Server returns full page, but we only extract the #content div</p>
+    <a href="/api/full-page" h-get h-target="#select-result" h-select="#content" class="button">
+      Load Full Page, Extract #content
+    </a>
+    <div id="select-result"></div>
+  </section>
+
+  <!-- Test 12: h-error-target -->
+  <section>
+    <h2>12. h-error-target</h2>
+    <p>Error responses go to a separate target</p>
+    <a href="/api/maybe-error" h-get h-target="#success-result" h-error-target="#error-result" class="button">
+      Load (50% chance of error)
+    </a>
+    <div id="success-result" style="color: green;"></div>
+    <div id="error-result" style="color: red;"></div>
+  </section>
+
+  <!-- Test 13: History (h-push-url) -->
+  <section>
+    <h2>13. History (h-push-url / h-replace-url)</h2>
+    <p>Click links and watch the URL change. Use browser back/forward buttons!</p>
+    <nav style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <a href="/page/home" h-get h-target="#history-content" h-push-url class="button">Home</a>
+      <a href="/page/about" h-get h-target="#history-content" h-push-url class="button">About</a>
+      <a href="/page/contact" h-get h-target="#history-content" h-push-url class="button">Contact</a>
+      <a href="/page/replace" h-get h-target="#history-content" h-replace-url class="button">Replace (no history)</a>
+    </nav>
+    <div id="history-content" style="padding: 1rem; background: #f9f9f9; border-radius: 4px;">
+      <p><em>Click a link above to navigate. URL will update and back button will work!</em></p>
+    </div>
+  </section>
+
+  <!-- Test 14: SSE (Mock) -->
+  <section>
+    <h2>14a. Server-Sent Events (Mock)</h2>
+    <p>Simulated SSE - click buttons to send mock messages.</p>
+    <button onclick="sendSSE('notification', '&lt;div class=\'notif\'&gt;🔔 New notification at ' + new Date().toLocaleTimeString() + '&lt;/div&gt;')" class="button">
+      Send Notification
+    </button>
+    <button onclick="sendSSE('message', '&lt;p&gt;💬 Message: Hello at ' + new Date().toLocaleTimeString() + '&lt;/p&gt;')" class="button">
+      Send Message
+    </button>
+    <button onclick="sendSSE(null, '&lt;p&gt;📨 Default event at ' + new Date().toLocaleTimeString() + '&lt;/p&gt;')" class="button">
+      Send Default
+    </button>
+
+    <!-- SSE container with event routing -->
+    <div id="sse-container" h-sse="/events" h-target="#sse-default" h-swap="prepend">
+      <template h-sse-on="notification" h-target="#sse-notifications" h-swap="prepend"></template>
+      <template h-sse-on="message" h-target="#sse-messages" h-swap="append"></template>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem;">
+      <div>
+        <h4>Notifications (prepend)</h4>
+        <div id="sse-notifications" style="min-height: 80px; padding: 0.5rem; background: #fff3cd; border-radius: 4px;"></div>
+      </div>
+      <div>
+        <h4>Messages (append)</h4>
+        <div id="sse-messages" style="min-height: 80px; padding: 0.5rem; background: #d1ecf1; border-radius: 4px;"></div>
+      </div>
+      <div>
+        <h4>Default (prepend)</h4>
+        <div id="sse-default" style="min-height: 80px; padding: 0.5rem; background: #f5f5f5; border-radius: 4px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Test 14b: SSE (Real) -->
+  <section>
+    <h2>14b. Server-Sent Events (Real Endpoint)</h2>
+    <p>Connect to a real SSE endpoint. This uses the native EventSource to test real servers.</p>
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+      <input type="text" id="sse-url-input" placeholder="Enter SSE endpoint URL..." style="flex: 1; padding: 0.5rem;">
+      <button onclick="connectRealSSE()" class="button">Connect</button>
+      <button onclick="disconnectRealSSE()" class="button">Disconnect</button>
+    </div>
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <input type="text" id="sse-events-input" placeholder="Event names to listen for (comma-separated, e.g. note,eose)" style="flex: 1; padding: 0.5rem;" value="message,note,eose">
+    </div>
+    <div id="sse-real-status" style="font-size: 0.875rem; color: #666; margin-bottom: 0.5rem;">Status: Not connected</div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+      <div style="min-width: 0;">
+        <h4>Raw Messages (log)</h4>
+        <div id="sse-real-output" style="min-height: 150px; max-height: 300px; overflow-y: auto; overflow-x: hidden; padding: 0.5rem; background: #f9f9f9; border-radius: 4px; font-family: monospace; font-size: 0.75rem; word-break: break-all;">
+          <em>Raw SSE data will appear here...</em>
+        </div>
+      </div>
+      <div style="min-width: 0;">
+        <h4>Rendered HTML (swapped)</h4>
+        <div id="sse-real-rendered" style="min-height: 150px; max-height: 300px; overflow-y: auto; overflow-x: hidden; padding: 0.5rem; background: #e8f5e9; border-radius: 4px; word-break: break-all;">
+          <em>If server sends HTML, it will render here...</em>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="../dist/helm.js"></script>
+  <script>
+    // Mock server responses (intercept fetch)
+    let counter = 0;
+    let itemCounter = 0;
+
+    window.fetch = async (url, options = {}) => {
+      console.log(`[HelmJS] ${options.method || 'GET'} ${url}`);
+
+      // Simulate network delay
+      await new Promise(r => setTimeout(r, 200));
+
+      const path = new URL(url, location.origin).pathname;
+      const search = new URL(url, location.origin).searchParams;
+
+      let html = '';
+
+      if (path === '/api/hello') {
+        html = `<p><strong>Hello from server!</strong> Time: ${new Date().toLocaleTimeString()}</p>`;
+      }
+      else if (path === '/api/item') {
+        itemCounter++;
+        html = `<div class="item">Item ${itemCounter} (added ${new Date().toLocaleTimeString()})</div>`;
+      }
+      else if (path === '/api/clear') {
+        html = `<em>Cleared</em>`;
+      }
+      else if (path === '/api/morph-demo') {
+        counter++;
+        html = `
+          <input type="text" id="search-input" placeholder="Type here..." style="margin: 1rem 0; display: block;">
+          <ul id="results">
+            <li id="r1">Updated A (${new Date().toLocaleTimeString()})</li>
+            <li id="r2">Updated B</li>
+            <li id="r3">Updated C</li>
+            <li id="r4">New Item D</li>
+          </ul>
+          <p>Counter: <span id="counter">${counter}</span></p>
+        `;
+      }
+      else if (path === '/api/form') {
+        const body = options.body;
+        const data = {};
+        for (const [key, val] of body.entries()) {
+          data[key] = val;
+        }
+        html = `<p style="color: green;">Received: ${JSON.stringify(data)}</p>`;
+      }
+      else if (path === '/api/time') {
+        html = `<p>Time: ${new Date().toLocaleTimeString()}</p>`;
+      }
+      else if (path === '/api/slow') {
+        await new Promise(r => setTimeout(r, 800));
+        html = `<p>Loaded after 1 second delay</p>`;
+      }
+      else if (path.startsWith('/api/item/')) {
+        // DELETE - return empty to remove element
+        html = '';
+      }
+      else if (path === '/api/headers') {
+        const hdrs = Object.fromEntries(Object.entries(options.headers || {}));
+        html = `<pre>${JSON.stringify(hdrs, null, 2)}</pre>`;
+      }
+      else if (path === '/api/full-page') {
+        // Returns a full HTML page, but we only want #content
+        html = `
+          <!DOCTYPE html>
+          <html>
+            <head><title>Full Page</title></head>
+            <body>
+              <header><h1>Header - should not appear</h1></header>
+              <div id="content">
+                <p><strong>This is the extracted content!</strong></p>
+                <p>Time: ${new Date().toLocaleTimeString()}</p>
+              </div>
+              <footer>Footer - should not appear</footer>
+            </body>
+          </html>
+        `;
+      }
+      else if (path === '/api/maybe-error') {
+        const isError = Math.random() > 0.5;
+        if (isError) {
+          return new Response('<p>Something went wrong! (Error from server)</p>', {
+            status: 500,
+            headers: { 'Content-Type': 'text/html' }
+          });
+        }
+        html = `<p>Success! Time: ${new Date().toLocaleTimeString()}</p>`;
+      }
+      else if (path.startsWith('/page/')) {
+        const page = path.split('/')[2];
+        const pages = {
+          home: '<h3>Home Page</h3><p>Welcome to the home page!</p>',
+          about: '<h3>About Page</h3><p>This is the about page. Learn more about us.</p>',
+          contact: '<h3>Contact Page</h3><p>Get in touch with us here.</p>',
+          replace: '<h3>Replaced!</h3><p>This used replace-url, so no history entry was added.</p>'
+        };
+        html = pages[page] || `<h3>Page: ${page}</h3><p>Unknown page</p>`;
+        html += `<p><small>Loaded at: ${new Date().toLocaleTimeString()}</small></p>`;
+      }
+
+      return new Response(html, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' }
+      });
+    };
+
+    // Event logging
+    const log = document.getElementById('event-log');
+    const indicator = document.getElementById('loading-indicator');
+    const eventLink = document.getElementById('event-link');
+
+    ['h:before', 'h:after', 'h:swapped', 'h:error'].forEach(evt => {
+      eventLink.addEventListener(evt, (e) => {
+        const time = new Date().toLocaleTimeString();
+        log.innerHTML = `<div>[${time}] ${evt}</div>` + log.innerHTML;
+
+        if (evt === 'h:before') indicator.classList.add('loading');
+        if (evt === 'h:swapped' || evt === 'h:error') indicator.classList.remove('loading');
+      });
+    });
+
+    // Mock SSE - store reference to dispatch events manually
+    let mockSSE = null;
+    const OriginalEventSource = window.EventSource;
+    window.EventSource = class MockEventSource {
+      constructor(url) {
+        console.log('[HelmJS] SSE connecting to:', url);
+        this.url = url;
+        this.readyState = 1;
+        this.onmessage = null;
+        this.onerror = null;
+        this._listeners = {};
+        mockSSE = this;
+      }
+      addEventListener(event, handler) {
+        if (!this._listeners[event]) this._listeners[event] = [];
+        this._listeners[event].push(handler);
+      }
+      close() {
+        this.readyState = 2;
+        mockSSE = null;
+      }
+      // Helper to dispatch events
+      _dispatch(event, data) {
+        const msgEvent = new MessageEvent(event || 'message', { data });
+        if (event && this._listeners[event]) {
+          this._listeners[event].forEach(h => h(msgEvent));
+        } else if (!event && this.onmessage) {
+          this.onmessage(msgEvent);
+        }
+      }
+    };
+
+    function sendSSE(event, data) {
+      if (mockSSE) {
+        mockSSE._dispatch(event, data);
+      } else {
+        console.warn('SSE not connected');
+      }
+    }
+
+    // Real SSE connection
+    let realSSE = null;
+    const sseStatus = document.getElementById('sse-real-status');
+    const sseOutput = document.getElementById('sse-real-output');
+    const sseRendered = document.getElementById('sse-real-rendered');
+
+    function connectRealSSE() {
+      const url = document.getElementById('sse-url-input').value.trim();
+      if (!url) {
+        alert('Please enter an SSE endpoint URL');
+        return;
+      }
+
+      disconnectRealSSE();
+      sseOutput.innerHTML = '';
+      sseRendered.innerHTML = '';
+      sseStatus.textContent = 'Status: Connecting...';
+      sseStatus.style.color = '#856404';
+
+      try {
+        realSSE = new OriginalEventSource(url);
+
+        realSSE.onopen = (e) => {
+          console.log('SSE onopen fired', e);
+          sseStatus.textContent = 'Status: Connected';
+          sseStatus.style.color = '#155724';
+          logSSE('system', 'Connected to ' + url);
+        };
+
+        realSSE.onmessage = (e) => {
+          console.log('SSE onmessage fired', e);
+          logSSE('message', e.data);
+          // Also render as HTML (prepend)
+          sseRendered.insertAdjacentHTML('afterbegin', e.data);
+        };
+
+        // Get event names from input
+        const eventNamesInput = document.getElementById('sse-events-input').value;
+        const eventNames = eventNamesInput.split(',').map(s => s.trim()).filter(s => s);
+
+        logSSE('system', 'Listening for events: ' + eventNames.join(', '));
+
+        // Listen for specified event names
+        eventNames.forEach(eventName => {
+          realSSE.addEventListener(eventName, (e) => {
+            console.log(`SSE event "${eventName}" received:`, e.data);
+            logSSE('message', `[${eventName}] ${e.data}`);
+            sseRendered.insertAdjacentHTML('afterbegin', `<div style="margin: 0.25rem 0; padding: 0.25rem; background: #fff; border-radius: 2px;">${e.data}</div>`);
+          });
+        });
+
+        realSSE.onerror = () => {
+          if (realSSE.readyState === EventSource.CLOSED) {
+            sseStatus.textContent = 'Status: Disconnected';
+            sseStatus.style.color = '#721c24';
+            logSSE('error', 'Connection closed');
+          } else {
+            sseStatus.textContent = 'Status: Reconnecting...';
+            sseStatus.style.color = '#856404';
+            logSSE('error', 'Connection error, reconnecting...');
+          }
+        };
+      } catch (err) {
+        sseStatus.textContent = 'Status: Error';
+        sseStatus.style.color = '#721c24';
+        logSSE('error', 'Failed to connect: ' + err.message);
+      }
+    }
+
+    function disconnectRealSSE() {
+      if (realSSE) {
+        realSSE.close();
+        realSSE = null;
+        sseStatus.textContent = 'Status: Disconnected';
+        sseStatus.style.color = '#666';
+      }
+    }
+
+    function logSSE(type, data) {
+      const time = new Date().toLocaleTimeString();
+      const colors = { system: '#666', message: '#000', error: '#721c24' };
+      const prefix = { system: '⚙️', message: '📨', error: '❌' };
+      sseOutput.innerHTML += `<div style="color: ${colors[type]}; margin: 0.25rem 0;">[${time}] ${prefix[type]} ${escapeHtml(data)}</div>`;
+      sseOutput.scrollTop = sseOutput.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+  </script>
+</body>
+</html>

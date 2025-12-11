@@ -1,0 +1,47 @@
+{
+  "name": "helmjs",
+  "version": "0.1.0",
+  "description": "Minimal hypermedia library for HTML-first web applications",
+  "type": "module",
+  "main": "dist/helm.js",
+  "module": "dist/helm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/helm.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --minify --format=esm --banner:js=\"// HelmJS v$(node -p \"require('./package.json').version\") - https://github.com/Letdown2491/helmjs\" --outfile=dist/helm.js && tsc --emitDeclarationOnly",
+    "dev": "esbuild src/index.ts --bundle --format=esm --outfile=dist/helm.js --sourcemap",
+    "watch": "esbuild src/index.ts --bundle --format=esm --outfile=dist/helm.js --sourcemap --watch",
+    "size": "esbuild src/index.ts --bundle --minify --format=esm --outfile=dist/helm.js && wc -c dist/helm.js && gzip -c dist/helm.js | wc -c",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Letdown2491/helmjs.git"
+  },
+  "homepage": "https://github.com/Letdown2491/helmjs",
+  "bugs": {
+    "url": "https://github.com/Letdown2491/helmjs/issues"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  },
+  "keywords": [
+    "hypermedia",
+    "hateoas",
+    "htmx",
+    "rest",
+    "html",
+    "ajax",
+    "fetch"
+  ],
+  "license": "MIT"
+}
