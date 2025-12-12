@@ -172,6 +172,7 @@ const init = (el: Element): void => {
     const swap = attr(el, 'h-swap', 'morph') as SwapStrategy
     const hdrAttr = attr(el, 'h-headers')
     let headers: Record<string, string> = { 'H-Request': 'true' }
+    if (tgtSel) headers['H-Target'] = tgtSel
     if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
     const isGet = methodInfo.method === 'GET'
 
@@ -335,7 +336,7 @@ const initPoll = (el: Element): void => {
     if (!document.contains(el)) { clearInterval(id); return }
     const target = tgtSel ? document.querySelector(tgtSel) ?? el : el
     try {
-      const res = await fetch(url, { headers: { 'H-Request': 'true' } })
+      const res = await fetch(url, { headers: { 'H-Request': 'true', ...(tgtSel ? { 'H-Target': tgtSel } : {}) } })
       if (res.ok) {
         let html = await res.text()
         if (selSel) html = selectFragment(html, selSel)
@@ -379,7 +380,7 @@ window.addEventListener('popstate', async (e) => {
   const t = document.querySelector(s.target)
   if (!t) { location.reload(); return }
   try {
-    let html = await (await fetch(s.url, { headers: { 'H-Request': 'true' } })).text()
+    let html = await (await fetch(s.url, { headers: { 'H-Request': 'true', ...(s.target ? { 'H-Target': s.target } : {}) } })).text()
     if (s.select) html = selectFragment(html, s.select)
     doSwap(t, html, s.swap)
   } catch { location.reload() }

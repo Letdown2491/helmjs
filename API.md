@@ -467,9 +467,15 @@ HelmJS automatically adds:
 
 ```
 H-Request: true
+H-Target: <selector>   (when h-target is specified)
 ```
 
-Use this server-side to detect HelmJS requests and return partial HTML instead of full pages.
+| Header | Value | Description |
+|--------|-------|-------------|
+| `H-Request` | `true` | Always sent. Indicates this is a HelmJS request. |
+| `H-Target` | CSS selector | Sent when `h-target` is specified. Contains the target selector value. |
+
+Use these server-side to detect HelmJS requests and return appropriately scoped HTML fragments. The `H-Target` header allows the server to distinguish between requests targeting different elements and return the most relevant response.
 
 ### Custom Headers
 
