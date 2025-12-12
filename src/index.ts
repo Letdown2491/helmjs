@@ -19,13 +19,26 @@ interface HState {
   select: string | null
 }
 
+interface ElState { init?: true; abort?: AbortController; sse?: EventSource; poll?: number }
+
+const elState = new WeakMap<Element, ElState>()
+const state = (el: Element): ElState => elState.get(el) || (elState.set(el, {}), elState.get(el)!)
+const $ = (s: string) => document.querySelector(s)
+const has = (el: Element, a: string) => el.hasAttribute(a)
+
+const toggleDisabled = (els: Element[], on: boolean) => {
+  for (const e of els) e.tagName === 'A'
+    ? (e.classList.toggle('h-disabled', on), on ? e.setAttribute('aria-disabled', 'true') : e.removeAttribute('aria-disabled'))
+    : on ? e.setAttribute('disabled', '') : e.removeAttribute('disabled')
+}
+
 const emit = (el: Element, type: string, detail: object = {}): boolean =>
   el.dispatchEvent(new CustomEvent(`h:${type}`, { detail, bubbles: true, cancelable: true }))
 
 const doScroll = (el: Element, scroll: string): void => {
   if (scroll === 'top') window.scrollTo({ top: 0, behavior: 'smooth' })
   else if (scroll === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
-  else (scroll === 'target' ? el : document.querySelector(scroll))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  else (scroll === 'target' ? el : $(scroll))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 const attr = (el: Element, name: string, fallback = ''): string =>
@@ -56,12 +69,12 @@ const processOOB = (html: string): string => {
   if (!html.includes('h-oob')) return html
   const t = document.createElement('template')
   t.innerHTML = html
-  for (const oob of t.content.querySelectorAll('[h-oob]')) {
-    const swap = (oob.getAttribute('h-oob') || 'true') as SwapStrategy
-    oob.removeAttribute('h-oob')
-    const target = oob.id ? document.getElementById(oob.id) : null
-    if (target) doSwap(target, oob.outerHTML, swap === 'true' as any ? 'outer' : swap)
-    oob.remove()
+  for (const o of t.content.querySelectorAll('[h-oob]')) {
+    const s = (o.getAttribute('h-oob') || 'true') as SwapStrategy
+    o.removeAttribute('h-oob')
+    const tgt = o.id ? document.getElementById(o.id) : null
+    if (tgt) doSwap(tgt, o.outerHTML, s === 'true' as any ? 'outer' : s)
+    o.remove()
   }
   return t.innerHTML
 }
@@ -83,21 +96,32 @@ const morph = (target: Element, html: string): void => {
 }
 
 const morphChildren = (parent: Element | DocumentFragment, newParent: Element | DocumentFragment): void => {
-  const old = [...parent.children], next = [...newParent.children]
+  const oldNodes = [...parent.childNodes], nextNodes = [...newParent.childNodes]
+  const oldEls = oldNodes.filter((n): n is Element => n.nodeType === 1)
+  const nextEls = nextNodes.filter((n): n is Element => n.nodeType === 1)
+
+  // If mixed content (has text nodes), use simpler replacement
+  const hasText = (nodes: Node[]) => nodes.some(n => n.nodeType === 3 && n.textContent?.trim())
+  if (hasText(oldNodes) || hasText(nextNodes)) {
+    // Fall back to innerHTML for mixed content
+    if (parent instanceof Element) parent.innerHTML = newParent instanceof Element ? newParent.innerHTML : (newParent as DocumentFragment).children[0]?.outerHTML || ''
+    return
+  }
+
   const byId = new Map<string, Element>()
-  for (const c of old) if (c.id) byId.set(c.id, c)
+  for (const c of oldEls) if (c.id) byId.set(c.id, c)
   const used = new Set<Element>()
   let i = 0
-  for (const n of next) {
+  for (const n of nextEls) {
     let m: Element | undefined
     if (n.id && byId.has(n.id)) m = byId.get(n.id)
-    else if (i < old.length && old[i].tagName === n.tagName && !old[i].id && !used.has(old[i])) m = old[i]
+    else if (i < oldEls.length && oldEls[i].tagName === n.tagName && !oldEls[i].id && !used.has(oldEls[i])) m = oldEls[i]
     const ref = parent.children[i] || null
     if (m) { used.add(m); if (ref !== m) parent.insertBefore(m, ref); morphNodes(m, n) }
     else parent.insertBefore(n.cloneNode(true), ref)
     i++
   }
-  for (const c of old) if (!used.has(c)) c.remove()
+  for (const c of oldEls) if (!used.has(c)) c.remove()
 }
 
 const morphNodes = (old: Element, next: Element): void => {
@@ -130,7 +154,7 @@ const morphNodes = (old: Element, next: Element): void => {
 
 const findMethod = (el: Element): { method: HttpMethod; action: string } | null => {
   const tag = el.tagName
-  if (el.hasAttribute('h-get')) {
+  if (has(el, 'h-get')) {
     const url = el.getAttribute(tag === 'A' ? 'href' : tag === 'FORM' ? 'action' : '')
     return url ? { method: 'GET', action: url } : null
   }
@@ -138,13 +162,13 @@ const findMethod = (el: Element): { method: HttpMethod; action: string } | null 
     const action = el.getAttribute('action')
     if (!action) return null
     for (const m of ['post', 'put', 'patch', 'delete'] as const)
-      if (el.hasAttribute(`h-${m}`)) return { method: m.toUpperCase() as HttpMethod, action }
+      if (has(el, `h-${m}`)) return { method: m.toUpperCase() as HttpMethod, action }
   }
   return null
 }
 
 const init = (el: Element): void => {
-  if ((el as any).__h || ignore(el)) return
+  if (state(el).init || ignore(el)) return
   const methodInfo = findMethod(el)
   if (!methodInfo || !emit(el, 'init', {})) return
 
@@ -157,10 +181,11 @@ const init = (el: Element): void => {
     const confirmMsg = attr(el, 'h-confirm')
     if (confirmMsg && !confirm(confirmMsg)) return
 
-    if (sync === 'abort' && (el as any).__hAbort) (el as any).__hAbort.abort()
-    else if (sync === 'drop' && (el as any).__hAbort) return
+    const st = state(el)
+    if (sync === 'abort' && st.abort) st.abort.abort()
+    else if (sync === 'drop' && st.abort) return
     const controller = sync ? new AbortController() : undefined
-    if (controller) (el as any).__hAbort = controller
+    if (controller) st.abort = controller
 
     const form = el instanceof HTMLFormElement ? el : null
     const body = form ? new FormData(form) : null
@@ -168,7 +193,7 @@ const init = (el: Element): void => {
       body!.append(evt.submitter.getAttribute('name')!, (evt.submitter as HTMLButtonElement).value)
 
     const tgtSel = attr(el, 'h-target')
-    const target = tgtSel ? document.querySelector(tgtSel) ?? el : el
+    const target = tgtSel ? $(tgtSel) ?? el : el
     const swap = attr(el, 'h-swap', 'morph') as SwapStrategy
     const hdrAttr = attr(el, 'h-headers')
     let headers: Record<string, string> = { 'H-Request': 'true' }
@@ -184,21 +209,18 @@ const init = (el: Element): void => {
     evt.preventDefault()
     if (!emit(el, 'before', { cfg })) return
 
-    const isMut = !isGet, noDisable = el.hasAttribute('h-no-disable')
+    const isMut = !isGet, noDisable = has(el, 'h-no-disable')
     const disEls: Element[] = []
-    if ((isMut && !noDisable) || el.hasAttribute('h-disabled')) {
+    if ((isMut && !noDisable) || has(el, 'h-disabled')) {
       if (el.tagName === 'FORM') disEls.push(...el.querySelectorAll('button, input[type="submit"]'))
       else disEls.push(el)
     }
     const disSel = attr(el, 'h-disabled')
     if (disSel) disEls.push(...document.querySelectorAll(disSel))
-    for (const d of disEls) {
-      if (d.tagName === 'A') { d.classList.add('h-disabled'); d.setAttribute('aria-disabled', 'true') }
-      else d.setAttribute('disabled', '')
-    }
+    toggleDisabled(disEls, true)
 
     const indSel = attr(el, 'h-indicator')
-    const ind = indSel ? document.querySelector(indSel) : null
+    const ind = indSel ? $(indSel) : null
     if (ind) ind.classList.add('h-loading')
 
     let url = cfg.action
@@ -215,7 +237,7 @@ const init = (el: Element): void => {
 
       if (res.status >= 400) {
         const errSel = attr(el, 'h-error-target')
-        const errTgt = errSel ? document.querySelector(errSel) : null
+        const errTgt = errSel ? $(errSel) : null
         if (errTgt) doSwap(errTgt, html, 'inner')
         emit(el, 'error', { cfg, response: res, html })
       } else if (emit(el, 'after', { cfg, response: res, html })) {
@@ -236,7 +258,10 @@ const init = (el: Element): void => {
           } else doScroll(cfg.target, scrollAttr)
         }
 
-        const push = el.hasAttribute('h-push-url'), replace = el.hasAttribute('h-replace-url')
+        const focusSel = attr(el, 'h-focus')
+        if (focusSel) ($(focusSel) as HTMLElement | null)?.focus?.()
+
+        const push = has(el, 'h-push-url'), replace = has(el, 'h-replace-url')
         if (push || replace) {
           const st: HState = { h: true, url, target: tgtSel || null, swap: cfg.swap, select: selSel || null }
           if (push) history.pushState(st, '', url)
@@ -247,11 +272,8 @@ const init = (el: Element): void => {
       if ((error as Error).name === 'AbortError') return
       emit(el, 'error', { cfg, error })
     } finally {
-      if (controller) (el as any).__hAbort = null
-      for (const d of disEls) {
-        if (d.tagName === 'A') { d.classList.remove('h-disabled'); d.removeAttribute('aria-disabled') }
-        else d.removeAttribute('disabled')
-      }
+      if (controller) st.abort = undefined
+      toggleDisabled(disEls, false)
       if (ind) ind.classList.remove('h-loading')
     }
   }
@@ -264,7 +286,7 @@ const init = (el: Element): void => {
     if (mods.has('throttle')) handler = throttle(handler, parseInt(mods.get('throttle')!) || 300)
 
     const fromSel = mods.get('from')
-    const listenTarget = fromSel ? document.querySelector(fromSel) : el
+    const listenTarget = fromSel ? $(fromSel) : el
 
     if (event === 'intersect') {
       const threshold = parseFloat(mods.get('threshold') ?? '0')
@@ -282,12 +304,12 @@ const init = (el: Element): void => {
       listenTarget.addEventListener(event, handler, { once: mods.has('once'), capture: mods.has('capture'), passive: mods.has('passive') })
     }
   }
-  ;(el as any).__h = 1
+  state(el).init = true
   emit(el, 'inited', {})
 }
 
 const initSSE = (el: Element): void => {
-  if ((el as any).__hsse || ignore(el)) return
+  if (state(el).sse || ignore(el)) return
   const url = attr(el, 'h-sse')
   if (!url) return
 
@@ -299,27 +321,27 @@ const initSSE = (el: Element): void => {
 
   const defTarget = attr(el, 'h-target'), defSwap = attr(el, 'h-swap', 'append') as SwapStrategy
   const es = new EventSource(url)
-  ;(el as any).__hsse = es
+  state(el).sse = es
   emit(el, 'sse-connect', { url })
 
   routes.forEach((r, ev) => {
     es.addEventListener(ev, (e: MessageEvent) => {
-      const t = document.querySelector(r.target)
-      if (t) { doSwap(t, processOOB(e.data), r.swap); emit(el, 'sse-message', { event: ev, data: e.data }) }
+      const target = $(r.target)
+      if (target) { doSwap(target, processOOB(e.data), r.swap); emit(el, 'sse-message', { event: ev, data: e.data }) }
     })
   })
 
   es.onmessage = (e: MessageEvent) => {
     if (defTarget) {
-      const t = document.querySelector(defTarget)
-      if (t) { doSwap(t, processOOB(e.data), defSwap); emit(el, 'sse-message', { data: e.data }) }
+      const target = $(defTarget)
+      if (target) { doSwap(target, processOOB(e.data), defSwap); emit(el, 'sse-message', { data: e.data }) }
     }
   }
   es.onerror = () => emit(el, 'sse-error', { url })
 }
 
 const initPoll = (el: Element): void => {
-  if ((el as any).__hpoll || ignore(el)) return
+  if (state(el).poll || ignore(el)) return
   const val = attr(el, 'h-poll')
   if (!val) return
 
@@ -334,7 +356,7 @@ const initPoll = (el: Element): void => {
 
   const poll = async () => {
     if (!document.contains(el)) { clearInterval(id); return }
-    const target = tgtSel ? document.querySelector(tgtSel) ?? el : el
+    const target = tgtSel ? $(tgtSel) ?? el : el
     try {
       const res = await fetch(url, { headers: { 'H-Request': 'true', ...(tgtSel ? { 'H-Target': tgtSel } : {}) } })
       if (res.ok) {
@@ -348,14 +370,14 @@ const initPoll = (el: Element): void => {
   }
 
   const id = setInterval(poll, interval)
-  ;(el as any).__hpoll = id
+  state(el).poll = id
   emit(el, 'poll-start', { url, interval })
 }
 
 const initEl = (el: Element): void => {
   if (findMethod(el)) init(el)
-  if (el.hasAttribute('h-sse')) initSSE(el)
-  if (el.hasAttribute('h-poll')) initPoll(el)
+  if (has(el, 'h-sse')) initSSE(el)
+  if (has(el, 'h-poll')) initPoll(el)
 }
 
 const process = (node: Node): void => {
@@ -377,11 +399,11 @@ window.addEventListener('popstate', async (e) => {
   const s = e.state as HState | null
   if (!s?.h) return
   if (!s.target) { location.reload(); return }
-  const t = document.querySelector(s.target)
-  if (!t) { location.reload(); return }
+  const target = $(s.target)
+  if (!target) { location.reload(); return }
   try {
     let html = await (await fetch(s.url, { headers: { 'H-Request': 'true', ...(s.target ? { 'H-Target': s.target } : {}) } })).text()
     if (s.select) html = selectFragment(html, s.select)
-    doSwap(t, html, s.swap)
+    doSwap(target, html, s.swap)
   } catch { location.reload() }
 })

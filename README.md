@@ -1,6 +1,6 @@
 # HelmJS
 
-A minimal hypermedia library for HTML-first web applications. **~3.4KB gzipped.**
+A minimal hypermedia library for HTML-first web applications. **~3.5KB gzipped.**
 
 ```html
 <script src="https://unpkg.com/helmjs"></script>
@@ -57,6 +57,7 @@ The server sends HTML, HelmJS swaps it in. That's it.
 | Server-Sent Events | `h-sse="/events"` |
 | Multi-element updates | `h-oob="true"` |
 | Scroll control | `h-scroll="top"` |
+| Focus control | `h-focus="#input"` |
 | History | `h-push-url` |
 
 ## Example: Live Search

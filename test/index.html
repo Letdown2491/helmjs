@@ -504,6 +504,20 @@
     </div>
   </section>
 
+  <!-- Test 25: h-focus -->
+  <section>
+    <h2>25. Focus Control (h-focus)</h2>
+    <p>Focus an element after swap completes - useful for chat/message interfaces</p>
+    <form action="/api/message" h-post h-target="#focus-result" h-focus="#focus-input">
+      <input id="focus-input" name="message" placeholder="Type a message..." autocomplete="off" style="width: 200px;">
+      <button type="submit">Send</button>
+    </form>
+    <div id="focus-result" style="margin-top: 0.5rem; padding: 0.5rem; background: #f5f5f5; border-radius: 4px; min-height: 50px;">
+      <em>Messages appear here. After sending, focus returns to input.</em>
+    </div>
+    <p><small>After submit, cursor automatically returns to the input field for quick follow-up messages.</small></p>
+  </section>
+
   <script src="../dist/helm.js"></script>
   <script>
     // Mock server responses (intercept fetch)
@@ -702,6 +716,14 @@
             ${filtered.map(u => `<li>${u}</li>`).join('')}
           </ul>
           <p><small>Searched at: ${new Date().toLocaleTimeString()}</small></p>
+        </div>`;
+      }
+      else if (path === '/api/message') {
+        const body = options.body;
+        const message = body.get('message') || '';
+        const time = new Date().toLocaleTimeString();
+        html = `<div style="padding: 0.25rem 0; border-bottom: 1px solid #eee;">
+          <strong>${time}:</strong> ${message || '<em>empty message</em>'}
         </div>`;
       }
 

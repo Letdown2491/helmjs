@@ -33,7 +33,7 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 3. **Strict HATEOAS compliance** - The client never invents URLs. All actions come from server-provided hypermedia controls.
 
-4. **Minimal footprint** - Every byte must be justified. No dependencies, no dev-only code. Currently ~3.4KB gzipped.
+4. **Minimal footprint** - Every byte must be justified. No dependencies, no dev-only code. Currently ~3.5KB gzipped.
 
 5. **Intuitive defaults** - Zero config for common cases. Opinionated defaults enforce good hypermedia practices.
 
@@ -102,6 +102,7 @@ test/
 | `h-select` | any | CSS selector to extract a fragment from the response before swapping. |
 | `h-error-target` | any | CSS selector for where to swap 4xx/5xx error responses. |
 | `h-scroll` | any | Scroll behavior after swap: `top`, `bottom`, `target`, or a CSS selector. |
+| `h-focus` | any | CSS selector for element to focus after swap. |
 
 ### Behavior Modifiers
 
@@ -410,7 +411,7 @@ document.addEventListener('h:before', (e) => {
   e.detail.cfg.headers['Authorization'] = 'Bearer ' + token
 })
 
-// Focus input after swap
+// Focus input after swap (or use h-focus attribute for declarative approach)
 document.addEventListener('h:swapped', () => {
   document.querySelector('input[autofocus]')?.focus()
 })
