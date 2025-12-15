@@ -17,6 +17,7 @@ interface HState {
   target: string | null
   swap: SwapStrategy
   select: string | null
+  title: string
 }
 
 interface ElState { init?: true; abort?: AbortController; sse?: EventSource; poll?: number }
@@ -50,6 +51,12 @@ const selectFragment = (html: string, selector: string): string => {
 }
 
 const ignore = (el: Element): boolean => !!el.closest('[h-ignore]')
+
+const extractTitle = (html: string): string => {
+  const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  if (m) document.title = m[1].trim()
+  return html.replace(/<title[^>]*>[\s\S]*?<\/title>/gi, '')
+}
 
 const parseTrigger = (str: string): { event: string; mods: Map<string, string> } => {
   const parts = str.trim().split(/\s+/), mods = new Map<string, string>()
@@ -231,7 +238,7 @@ const init = (el: Element): void => {
 
     try {
       const res = await fetch(url, { method: cfg.method, headers: cfg.headers, body: cfg.body, signal: controller?.signal })
-      let html = await res.text()
+      let html = extractTitle(await res.text())
       const selSel = attr(el, 'h-select')
       if (selSel) html = selectFragment(html, selSel)
 
@@ -263,7 +270,7 @@ const init = (el: Element): void => {
 
         const push = has(el, 'h-push-url'), replace = has(el, 'h-replace-url')
         if (push || replace) {
-          const st: HState = { h: true, url, target: tgtSel || null, swap: cfg.swap, select: selSel || null }
+          const st: HState = { h: true, url, target: tgtSel || null, swap: cfg.swap, select: selSel || null, title: document.title }
           if (push) history.pushState(st, '', url)
           else history.replaceState(st, '', url)
         }
@@ -393,16 +400,17 @@ document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded'
 
 document.addEventListener('h:process', (e) => process(e.target as Node))
 
-history.replaceState({ h: true, url: location.href, target: null, swap: 'morph', select: null } as HState, '')
+history.replaceState({ h: true, url: location.href, target: null, swap: 'morph', select: null, title: document.title } as HState, '')
 
 window.addEventListener('popstate', async (e) => {
   const s = e.state as HState | null
   if (!s?.h) return
+  if (s.title) document.title = s.title
   if (!s.target) { location.reload(); return }
   const target = $(s.target)
   if (!target) { location.reload(); return }
   try {
-    let html = await (await fetch(s.url, { headers: { 'H-Request': 'true', ...(s.target ? { 'H-Target': s.target } : {}) } })).text()
+    let html = extractTitle(await (await fetch(s.url, { headers: { 'H-Request': 'true', ...(s.target ? { 'H-Target': s.target } : {}) } })).text())
     if (s.select) html = selectFragment(html, s.select)
     doSwap(target, html, s.swap)
   } catch { location.reload() }

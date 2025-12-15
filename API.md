@@ -510,6 +510,12 @@ Same as push, but replaces current history entry instead of adding new one.
 - On popstate, refetches the URL and swaps into the original target
 - Falls back to full page reload if target element no longer exists
 
+### Page Title
+
+When a response contains a `<title>` element, HelmJS automatically updates `document.title`. This happens before `h-select` processing, so the title is extracted from the full response.
+
+The title is also stored in history state, ensuring back/forward navigation shows the correct title immediately.
+
 ---
 
 ## View Transitions
