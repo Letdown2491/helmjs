@@ -22,6 +22,9 @@ interface HState {
 
 interface ElState { init?: true; abort?: AbortController; sse?: EventSource; poll?: number }
 
+interface PrefetchEntry { promise: Promise<{ response: Response; text: string }>; expires: number }
+const prefetchCache = new Map<string, PrefetchEntry>()
+
 const elState = new WeakMap<Element, ElState>()
 const state = (el: Element): ElState => elState.get(el) || (elState.set(el, {}), elState.get(el)!)
 const $ = (s: string) => document.querySelector(s)
@@ -70,6 +73,12 @@ const debounce = (fn: (e: Event) => void, ms: number) => {
 
 const throttle = (fn: (e: Event) => void, ms: number) => {
   let last = 0; return (e: Event) => { const now = Date.now(); if (now - last >= ms) { last = now; fn(e) } }
+}
+
+const parseTTL = (s?: string): number => {
+  if (!s) return 0
+  const m = s.match(/^(\d+)(ms|s|m)?$/)
+  return m ? (m[2] === 'ms' ? +m[1] : m[2] === 'm' ? +m[1] * 60000 : +m[1] * 1000) : 0
 }
 
 const processOOB = (html: string): string => {
@@ -237,8 +246,19 @@ const init = (el: Element): void => {
     }
 
     try {
-      const res = await fetch(url, { method: cfg.method, headers: cfg.headers, body: cfg.body, signal: controller?.signal })
-      let html = extractTitle(await res.text())
+      let res: Response
+      let html: string
+      const cached = isGet ? prefetchCache.get(url) : null
+
+      if (cached && cached.expires > Date.now()) {
+        const { response, text } = await cached.promise
+        res = response
+        html = extractTitle(text)
+        prefetchCache.delete(url)
+      } else {
+        res = await fetch(url, { method: cfg.method, headers: cfg.headers, body: cfg.body, signal: controller?.signal })
+        html = extractTitle(await res.text())
+      }
       const selSel = attr(el, 'h-select')
       if (selSel) html = selectFragment(html, selSel)
 
@@ -381,16 +401,50 @@ const initPoll = (el: Element): void => {
   emit(el, 'poll-start', { url, interval })
 }
 
+const initPrefetch = (el: Element): void => {
+  if (el.tagName !== 'A' || !has(el, 'h-get') || ignore(el)) return
+  const url = el.getAttribute('href')
+  if (!url) return
+
+  const val = attr(el, 'h-prefetch', 'hover')
+  const parts = val.trim().split(/\s+/)
+  const trigger = parts[0] || 'hover'
+  const ttl = parseTTL(parts[1]) || 30000
+
+  const doPrefetch = () => {
+    const cached = prefetchCache.get(url)
+    if (cached && cached.expires > Date.now()) return
+    const headers: Record<string, string> = { 'H-Request': 'true' }
+    const tgtSel = attr(el, 'h-target')
+    if (tgtSel) headers['H-Target'] = tgtSel
+    const hdrAttr = attr(el, 'h-headers')
+    if (hdrAttr) try { Object.assign(headers, JSON.parse(hdrAttr)) } catch {}
+    const promise = fetch(url, { headers }).then(async response => ({ response, text: await response.text() }))
+    prefetchCache.set(url, { promise, expires: Date.now() + ttl })
+  }
+
+  if (trigger === 'intersect') {
+    const obs = new IntersectionObserver((entries) => {
+      for (const entry of entries) if (entry.isIntersecting) { doPrefetch(); obs.disconnect() }
+    })
+    obs.observe(el)
+  } else {
+    el.addEventListener('mouseenter', doPrefetch, { once: true })
+    el.addEventListener('focus', doPrefetch, { once: true })
+  }
+}
+
 const initEl = (el: Element): void => {
   if (findMethod(el)) init(el)
   if (has(el, 'h-sse')) initSSE(el)
   if (has(el, 'h-poll')) initPoll(el)
+  if (has(el, 'h-prefetch')) initPrefetch(el)
 }
 
 const process = (node: Node): void => {
   if (!(node instanceof Element) || ignore(node)) return
   initEl(node)
-  node.querySelectorAll('a[h-get][href], form[h-get][action], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-poll]').forEach(initEl)
+  node.querySelectorAll('a[h-get][href], form[h-get][action], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-poll], [h-prefetch]').forEach(initEl)
 }
 
 const observer = new MutationObserver(recs => { for (const r of recs) r.addedNodes.forEach(process) })

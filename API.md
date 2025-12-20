@@ -11,6 +11,7 @@ Complete API reference and implementation details for HelmJS.
 - [Swap Strategies](#swap-strategies)
 - [Trigger System](#trigger-system)
 - [Out-of-Band Updates](#out-of-band-updates)
+- [Prefetch](#prefetch)
 - [Polling](#polling)
 - [Server-Sent Events](#server-sent-events)
 - [Events](#events)
@@ -115,6 +116,7 @@ test/
 | `h-headers` | any | JSON object of custom headers to include in the request. |
 | `h-disabled` | any | CSS selector for additional elements to disable during request. |
 | `h-no-disable` | any | Prevent automatic disabling of form buttons during mutation requests. |
+| `h-prefetch` | `<a>` | Prefetch content on hover/focus. Value: `hover` (default), `intersect`, or with TTL: `hover 60s`. |
 | `h-ignore` | any | Skip HelmJS processing for this element and all descendants. |
 
 ### History
@@ -291,6 +293,47 @@ Out-of-band (OOB) updates allow a single response to update multiple elements.
 | `append` | Insert at end |
 
 The target element is determined by the OOB element's `id` attribute.
+
+---
+
+## Prefetch
+
+Pre-fetch content on hover or focus to improve perceived performance.
+
+### Basic Usage
+
+```html
+<a href="/page" h-get h-prefetch>View details</a>
+```
+
+When the user hovers over or focuses the link, HelmJS fetches the content in the background. When they click, the cached response is used immediately.
+
+### Syntax
+
+```
+h-prefetch="[trigger] [ttl]"
+```
+
+- **trigger**: `hover` (default) or `intersect`
+- **ttl**: Cache duration. Default: `30s`. Supports: `ms`, `s`, `m`.
+
+### Examples
+
+```html
+<a href="/page" h-get h-prefetch>Link</a>                    <!-- hover + focus, 30s TTL -->
+<a href="/page" h-get h-prefetch="hover">Link</a>            <!-- same as above -->
+<a href="/page" h-get h-prefetch="hover 60s">Link</a>        <!-- 60 second TTL -->
+<a href="/page" h-get h-prefetch="intersect">Link</a>        <!-- prefetch when visible -->
+```
+
+### Behavior
+
+- `hover` trigger also listens for `focus` events (keyboard accessibility)
+- Only works on `<a>` elements with `h-get`
+- Respects `h-target` and `h-headers` attributes
+- If user clicks while prefetch is in-flight, reuses the pending request
+- Cache entries are consumed on use (one prefetch per navigation)
+- Does not prefetch if a valid cache entry already exists
 
 ---
 
