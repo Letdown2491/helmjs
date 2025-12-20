@@ -1,6 +1,6 @@
 {
   "name": "helmjs",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Minimal hypermedia library for HTML-first web applications",
   "type": "module",
   "main": "dist/helm.js",

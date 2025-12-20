@@ -55,6 +55,12 @@ const selectFragment = (html: string, selector: string): string => {
 
 const ignore = (el: Element): boolean => !!el.closest('[h-ignore]')
 
+const isInput = (el: Element): el is HTMLInputElement | HTMLTextAreaElement =>
+  el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+
+const hdrs = (tgt?: string | null): Record<string, string> =>
+  tgt ? { 'H-Request': 'true', 'H-Target': tgt } : { 'H-Request': 'true' }
+
 const extractTitle = (html: string): string => {
   const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
   if (m) document.title = m[1].trim()
@@ -86,10 +92,23 @@ const processOOB = (html: string): string => {
   const t = document.createElement('template')
   t.innerHTML = html
   for (const o of t.content.querySelectorAll('[h-oob]')) {
-    const s = (o.getAttribute('h-oob') || 'true') as SwapStrategy
+    const s = o.getAttribute('h-oob') || 'true'
     o.removeAttribute('h-oob')
     const tgt = o.id ? document.getElementById(o.id) : null
-    if (tgt) doSwap(tgt, o.outerHTML, s === 'true' as any ? 'outer' : s)
+    if (tgt) {
+      if (s === 'value' && isInput(tgt)) {
+        tgt.value = o.getAttribute('value') ?? o.textContent ?? ''
+      } else if (s === 'replace' && isInput(tgt)) {
+        const find = o.getAttribute('data-find') ?? '', repl = o.getAttribute('data-replace') ?? ''
+        if (find) {
+          if (o.hasAttribute('data-all')) tgt.value = tgt.value.split(find).join(repl)
+          else if (o.hasAttribute('data-first')) tgt.value = tgt.value.replace(find, repl)
+          else { const i = tgt.value.lastIndexOf(find); if (i >= 0) tgt.value = tgt.value.slice(0, i) + repl + tgt.value.slice(i + find.length) }
+        }
+      } else if (s === 'merge' && isInput(tgt)) {
+        try { tgt.value = JSON.stringify({ ...JSON.parse(tgt.value || '{}'), ...JSON.parse(o.getAttribute('value') ?? o.textContent ?? '{}') }) } catch {}
+      } else doSwap(tgt, o.outerHTML, s === 'true' ? 'outer' : s as SwapStrategy)
+    }
     o.remove()
   }
   return t.innerHTML
@@ -116,10 +135,8 @@ const morphChildren = (parent: Element | DocumentFragment, newParent: Element | 
   const oldEls = oldNodes.filter((n): n is Element => n.nodeType === 1)
   const nextEls = nextNodes.filter((n): n is Element => n.nodeType === 1)
 
-  // If mixed content (has text nodes), use simpler replacement
   const hasText = (nodes: Node[]) => nodes.some(n => n.nodeType === 3 && n.textContent?.trim())
   if (hasText(oldNodes) || hasText(nextNodes)) {
-    // Fall back to innerHTML for mixed content
     if (parent instanceof Element) parent.innerHTML = newParent instanceof Element ? newParent.innerHTML : (newParent as DocumentFragment).children[0]?.outerHTML || ''
     return
   }
@@ -204,16 +221,22 @@ const init = (el: Element): void => {
     if (controller) st.abort = controller
 
     const form = el instanceof HTMLFormElement ? el : null
-    const body = form ? new FormData(form) : null
+    let body = form ? new FormData(form) : null
     if (form && evt instanceof SubmitEvent && evt.submitter?.hasAttribute('name'))
       body!.append(evt.submitter.getAttribute('name')!, (evt.submitter as HTMLButtonElement).value)
+    const incSel = attr(el, 'h-include')
+    if (incSel) {
+      if (!body) body = new FormData()
+      for (const inc of document.querySelectorAll(incSel))
+        if ((inc instanceof HTMLInputElement || inc instanceof HTMLTextAreaElement || inc instanceof HTMLSelectElement) && inc.name)
+          body.append(inc.name, inc.value)
+    }
 
     const tgtSel = attr(el, 'h-target')
     const target = tgtSel ? $(tgtSel) ?? el : el
     const swap = attr(el, 'h-swap', 'morph') as SwapStrategy
     const hdrAttr = attr(el, 'h-headers')
-    let headers: Record<string, string> = { 'H-Request': 'true' }
-    if (tgtSel) headers['H-Target'] = tgtSel
+    let headers = hdrs(tgtSel)
     if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
     const isGet = methodInfo.method === 'GET'
 
@@ -240,7 +263,7 @@ const init = (el: Element): void => {
     if (ind) ind.classList.add('h-loading')
 
     let url = cfg.action
-    if (form && body && cfg.method === 'GET') {
+    if (body && cfg.method === 'GET') {
       const p = new URLSearchParams(body as any)
       if (p.toString()) url += (url.includes('?') ? '&' : '?') + p
     }
@@ -275,8 +298,8 @@ const init = (el: Element): void => {
         if (document.startViewTransition) await document.startViewTransition(doIt).finished
         else doIt()
 
-        emit(el, 'swapped', { cfg })
-        if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg })
+        emit(el, 'swapped', { cfg, response: res, html })
+        if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg, response: res, html })
 
         if (scrollAttr) {
           if (scrollAttr === 'target' && cfg.swap === 'outer') {
@@ -374,9 +397,7 @@ const initPoll = (el: Element): void => {
 
   const parts = val.trim().split(/\s+/)
   const url = parts[0]
-  const intervalStr = parts[1] || '30s'
-  const m = intervalStr.match(/^(\d+)(ms|s|m)?$/)
-  const interval = m ? (m[2] === 'ms' ? +m[1] : m[2] === 'm' ? +m[1] * 60000 : +m[1] * 1000) : 30000
+  const interval = parseTTL(parts[1]) || 30000
   const swap = attr(el, 'h-swap', 'inner') as SwapStrategy
   const tgtSel = attr(el, 'h-target')
   const selSel = attr(el, 'h-select')
@@ -385,7 +406,7 @@ const initPoll = (el: Element): void => {
     if (!document.contains(el)) { clearInterval(id); return }
     const target = tgtSel ? $(tgtSel) ?? el : el
     try {
-      const res = await fetch(url, { headers: { 'H-Request': 'true', ...(tgtSel ? { 'H-Target': tgtSel } : {}) } })
+      const res = await fetch(url, { headers: hdrs(tgtSel) })
       if (res.ok) {
         let html = await res.text()
         if (selSel) html = selectFragment(html, selSel)
@@ -414,11 +435,9 @@ const initPrefetch = (el: Element): void => {
   const doPrefetch = () => {
     const cached = prefetchCache.get(url)
     if (cached && cached.expires > Date.now()) return
-    const headers: Record<string, string> = { 'H-Request': 'true' }
-    const tgtSel = attr(el, 'h-target')
-    if (tgtSel) headers['H-Target'] = tgtSel
+    let headers = hdrs(attr(el, 'h-target'))
     const hdrAttr = attr(el, 'h-headers')
-    if (hdrAttr) try { Object.assign(headers, JSON.parse(hdrAttr)) } catch {}
+    if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
     const promise = fetch(url, { headers }).then(async response => ({ response, text: await response.text() }))
     prefetchCache.set(url, { promise, expires: Date.now() + ttl })
   }
@@ -464,7 +483,7 @@ window.addEventListener('popstate', async (e) => {
   const target = $(s.target)
   if (!target) { location.reload(); return }
   try {
-    let html = extractTitle(await (await fetch(s.url, { headers: { 'H-Request': 'true', ...(s.target ? { 'H-Target': s.target } : {}) } })).text())
+    let html = extractTitle(await (await fetch(s.url, { headers: hdrs(s.target) })).text())
     if (s.select) html = selectFragment(html, s.select)
     doSwap(target, html, s.swap)
   } catch { location.reload() }

@@ -117,6 +117,7 @@ test/
 | `h-disabled` | any | CSS selector for additional elements to disable during request. |
 | `h-no-disable` | any | Prevent automatic disabling of form buttons during mutation requests. |
 | `h-prefetch` | `<a>` | Prefetch content on hover/focus. Value: `hover` (default), `intersect`, or with TTL: `hover 60s`. |
+| `h-include` | any | CSS selector for elements to include in the request. Their name/value pairs are serialized as query params (GET) or FormData (POST/PUT/PATCH). |
 | `h-ignore` | any | Skip HelmJS processing for this element and all descendants. |
 
 ### History
@@ -291,8 +292,51 @@ Out-of-band (OOB) updates allow a single response to update multiple elements.
 | `outer` | Replace entire element |
 | `prepend` | Insert at beginning |
 | `append` | Insert at end |
+| `value` | Set target's `.value` property (for inputs/textareas) |
+| `replace` | Replace text within target's value (see below) |
+| `merge` | Merge JSON into target's value (see below) |
 
 The target element is determined by the OOB element's `id` attribute.
+
+### Value Strategies for Inputs
+
+These strategies work with `<input>` and `<textarea>` elements:
+
+#### `h-oob="value"`
+
+Sets the target element's value:
+
+```html
+<textarea id="post-content" h-oob="value">New content here</textarea>
+<input id="my-input" h-oob="value" value="New value">
+```
+
+#### `h-oob="replace"`
+
+Replaces text within the target's existing value. By default, replaces the **last occurrence** (ideal for autocomplete where you're completing the most recent typed text).
+
+```html
+<!-- Replace last occurrence of @vin with @alice -->
+<textarea id="post-content" h-oob="replace"
+          data-find="@vin" data-replace="@alice"></textarea>
+
+<!-- Replace first occurrence -->
+<textarea id="post-content" h-oob="replace" data-first
+          data-find="@vin" data-replace="@alice"></textarea>
+
+<!-- Replace all occurrences -->
+<textarea id="post-content" h-oob="replace" data-all
+          data-find="old" data-replace="new"></textarea>
+```
+
+#### `h-oob="merge"`
+
+Merges JSON into the target's existing JSON value. Useful for accumulating data like mention mappings:
+
+```html
+<!-- If target has {"bob":"xyz"}, result is {"bob":"xyz","alice":"abc123"} -->
+<input id="mentions-data" h-oob="merge" value='{"alice":"abc123"}'>
+```
 
 ---
 
@@ -429,7 +473,7 @@ HelmJS dispatches custom events throughout the request lifecycle. All events bub
 | `h:inited` | No | `{}` | After element initialization complete. |
 | `h:before` | Yes | `{ cfg }` | Before request sent. Modify `cfg` to change request. |
 | `h:after` | Yes | `{ cfg, response, html }` | After response, before swap. Cancel to skip swap. |
-| `h:swapped` | No | `{ cfg }` | After DOM update complete. |
+| `h:swapped` | No | `{ cfg, response, html }` | After DOM update complete. |
 | `h:error` | No | `{ cfg, response, html }` or `{ cfg, error }` | Request failed or HTTP 4xx/5xx. |
 
 ### Configuration Object (cfg)
@@ -454,9 +498,11 @@ document.addEventListener('h:before', (e) => {
   e.detail.cfg.headers['Authorization'] = 'Bearer ' + token
 })
 
-// Focus input after swap (or use h-focus attribute for declarative approach)
-document.addEventListener('h:swapped', () => {
-  document.querySelector('input[autofocus]')?.focus()
+// Process data after swap (e.g., for autocomplete selection)
+document.addEventListener('h:swapped', (e) => {
+  const { response, html } = e.detail
+  const mentionName = response.headers.get('X-Mention-Name')
+  if (mentionName) handleMentionSelect(mentionName)
 })
 
 // Log errors
