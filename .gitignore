@@ -1,6 +1,7 @@
 node_modules/
 dist/*
 !dist/helm.js
+!dist/helm.js.gz
 test/.build.mjs
 *.log
 .DS_Store

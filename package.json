@@ -16,10 +16,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --minify --format=esm --banner:js=\"// HelmJS v$(node -p \"require('./package.json').version\") - https://github.com/Letdown2491/helmjs\" --outfile=dist/helm.js && tsc --emitDeclarationOnly",
+    "build": "esbuild src/index.ts --bundle --minify --format=esm --banner:js=\"// HelmJS v$(node -p \"require('./package.json').version\") - https://github.com/Letdown2491/helmjs\" --outfile=dist/helm.js && gzip -9nfk dist/helm.js && tsc --emitDeclarationOnly",
     "dev": "esbuild src/index.ts --bundle --format=esm --outfile=dist/helm.js --sourcemap",
     "watch": "esbuild src/index.ts --bundle --format=esm --outfile=dist/helm.js --sourcemap --watch",
-    "size": "esbuild src/index.ts --bundle --minify --format=esm --outfile=dist/helm.js && wc -c dist/helm.js && gzip -c dist/helm.js | wc -c",
+    "size": "esbuild src/index.ts --bundle --minify --format=esm --outfile=dist/helm.js && wc -c dist/helm.js && gzip -9nc dist/helm.js | wc -c",
     "typecheck": "tsc --noEmit",
     "pretest": "esbuild src/index.ts --bundle --format=esm --outfile=test/.build.mjs",
     "test": "node --test test/*.test.mjs"
