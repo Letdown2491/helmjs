@@ -1,0 +1,20 @@
+#!/bin/sh
+# Guard: dist/helm.js and dist/helm.js.gz must match what src/ currently builds,
+# so a committed bundle (or its gzip) can never go stale relative to source.
+# Skip quietly if deps aren't installed yet (e.g. a fresh clone before npm install).
+[ -x node_modules/.bin/esbuild ] || { echo "pre-commit: esbuild not installed, skipping dist check"; exit 0; }
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+ver=$(node -p "require('./package.json').version")
+
+node_modules/.bin/esbuild src/index.ts --bundle --minify --format=esm \
+  --banner:js="// HelmJS v$ver - https://github.com/Letdown2491/helmjs" \
+  --outfile="$tmp/helm.js" >/dev/null 2>&1 || { echo "pre-commit: build failed"; exit 1; }
+gzip -9nfk "$tmp/helm.js"
+
+if ! cmp -s "$tmp/helm.js" dist/helm.js || ! cmp -s "$tmp/helm.js.gz" dist/helm.js.gz; then
+  echo "✗ dist/ is out of date with src/."
+  echo "  Run:  npm run build && git add dist/helm.js dist/helm.js.gz"
+  exit 1
+fi

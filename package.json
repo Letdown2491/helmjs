@@ -21,6 +21,7 @@
     "watch": "esbuild src/index.ts --bundle --format=esm --outfile=dist/helm.js --sourcemap --watch",
     "size": "esbuild src/index.ts --bundle --minify --format=esm --outfile=dist/helm.js && wc -c dist/helm.js && gzip -9nc dist/helm.js | wc -c",
     "typecheck": "tsc --noEmit",
+    "prepare": "git config core.hooksPath .githooks || true",
     "pretest": "esbuild src/index.ts --bundle --format=esm --outfile=test/.build.mjs",
     "test": "node --test test/*.test.mjs"
   },

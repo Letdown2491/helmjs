@@ -62,12 +62,18 @@ restricted to `<form>` with a real `action`, for both safety and degradation.
 ## Build Commands
 
 ```bash
-npm run build      # Production build (minified, with .d.ts types)
+npm run build      # Production build: minified dist/helm.js + dist/helm.js.gz + .d.ts
 npm run dev        # Development build (with sourcemaps)
 npm run watch      # Watch mode for development
 npm run size       # Check bundle size (raw + gzipped)
 npm run typecheck  # Type check without emitting
+npm test           # Build + run the jsdom test suite
 ```
+
+`dist/helm.js` and its reproducible `dist/helm.js.gz` (gzip `-9 -n`, so no embedded
+timestamp) are committed. A pre-commit hook (`.githooks/pre-commit`, auto-enabled by
+the `prepare` script on `npm install`) rebuilds the bundle and blocks the commit if
+either committed artifact is stale relative to `src/`.
 
 ---
 
