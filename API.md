@@ -17,6 +17,9 @@ Complete API reference and implementation details for HelmJS.
 - [Events](#events)
 - [CSS Classes](#css-classes)
 - [Request Headers](#request-headers)
+- [Response Headers (server-driven control)](#response-headers-server-driven-control)
+- [Progressive Enhancement (h-boost)](#progressive-enhancement-h-boost)
+- [Graceful Degradation Contract](#graceful-degradation-contract)
 - [History Management](#history-management)
 - [View Transitions](#view-transitions)
 
@@ -32,9 +35,9 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 2. **Semantic HTML required** - Use proper HTML elements. `<a href>` for navigation, `<form action>` for submissions. Applications must work without JavaScript.
 
-3. **Strict HATEOAS compliance** - The client never invents URLs. All actions come from server-provided hypermedia controls.
+3. **Strict HATEOAS compliance** - The client never invents URLs. All actions come from server-provided hypermedia controls. The server can drive every transition from the response via [response headers](#response-headers-server-driven-control), and plain hypermedia can be enhanced transparently with [`h-boost`](#progressive-enhancement-h-boost). See the [compliance summary](README.md#compliance-summary) in the README.
 
-4. **Minimal footprint** - Every byte must be justified. No dependencies, no dev-only code. Currently ~3.5KB gzipped.
+4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~4.9KB gzipped (see [Size](README.md#size) for what that buys).
 
 5. **Intuitive defaults** - Zero config for common cases. Opinionated defaults enforce good hypermedia practices.
 
@@ -73,8 +76,13 @@ dist/
   helm.js     # Bundled output (ESM, minified)
   index.d.ts  # TypeScript declarations
 test/
-  index.html  # Manual test page
+  index.html      # Manual test page (mock server)
+  harness.mjs     # jsdom + mock-fetch harness (dev-only)
+  helm.test.mjs   # Automated tests (node:test): degradation, headers, boost, history
 ```
+
+Run `npm test` for the automated suite (builds the bundle, then runs `node --test`).
+`jsdom` is a **dev** dependency only — the shipped library has zero runtime dependencies.
 
 - **Build**: esbuild bundles TypeScript to a single minified ESM file
 - **Types**: tsc generates declaration files only
@@ -93,14 +101,15 @@ test/
 | `h-put` | `<form>` | AJAX PUT request. URL from `action` attribute. |
 | `h-patch` | `<form>` | AJAX PATCH request. URL from `action` attribute. |
 | `h-delete` | `<form>` | AJAX DELETE request. URL from `action` attribute. |
+| `h-boost` | container | Upgrade plain `<a href>` / `<form action>` descendants to AJAX partial-swap + push-url navigation, with no other helmjs attributes required. Set `h-boost="false"` on a descendant to opt out. See [Progressive Enhancement](#progressive-enhancement-h-boost). |
 
 ### Response Handling
 
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
-| `h-target` | any | CSS selector for response destination. Default: the triggering element. |
-| `h-swap` | any | How to insert the response. Default: `morph`. |
-| `h-select` | any | CSS selector to extract a fragment from the response before swapping. |
+| `h-target` | any | CSS selector for response destination. Default: the triggering element. **Fallback only** — prefer server-declared placement (`h-oob` or the `H-Retarget` response header), which keeps responses self-descriptive. |
+| `h-swap` | any | How to insert the response. Default: `morph` (`inner` when boosted). Overridable per-response with `H-Reswap`. |
+| `h-select` | any | CSS selector to extract a fragment from the response before swapping. Overridable per-response with `H-Reselect`. |
 | `h-error-target` | any | CSS selector for where to swap 4xx/5xx error responses. |
 | `h-scroll` | any | Scroll behavior after swap: `top`, `bottom`, `target`, or a CSS selector. |
 | `h-focus` | any | CSS selector for element to focus after swap. |
@@ -572,6 +581,128 @@ Use these server-side to detect HelmJS requests and return appropriately scoped 
 ```html
 <a href="/api" h-get h-headers='{"X-Custom": "value"}'>Link</a>
 ```
+
+---
+
+## Response Headers (server-driven control)
+
+This is the core of HelmJS's HATEOAS posture: **the server can dictate the
+transition from its response**, so the requesting element does not have to
+pre-encode layout/routing knowledge. These mirror htmx `HX-*` semantics under the
+`H-` prefix.
+
+| Header | Value | Effect |
+|--------|-------|--------|
+| `H-Retarget` | CSS selector | Swap into this element instead of the client's `h-target`. Also applies to 4xx/5xx responses (server-placed errors). If the selector matches nothing, falls back to the original target. |
+| `H-Reswap` | swap strategy | Override the swap strategy for this response. **Validated** against the known strategies; an unknown value falls back to the element's `h-swap`. |
+| `H-Reselect` | CSS selector | Extract this fragment from the response before swapping. If it matches nothing, the full response is swapped. |
+| `H-Push-Url` | URL or `false` | Push this URL to history (server chooses the canonical URL). `false` suppresses an otherwise-configured push. |
+| `H-Replace-Url` | URL or `false` | Replace the current history entry instead of pushing. |
+| `H-Trigger` | name(s) or JSON | Fire client event(s) **on receive, before the swap** (htmx `HX-Trigger` parity). `"a,b"` fires two named events; `{"evt":{...}}` fires `evt` with `event.detail`. Names are **un-prefixed** (no `h:`), so you can trigger app events. |
+| `H-Trigger-After-Swap` | name(s) or JSON | Same syntax as `H-Trigger`, but fired **after the swap is applied**, so handlers see the new DOM. Skipped when the response short-circuits via redirect/refresh/location. |
+| `H-Redirect` | URL | Full client-side redirect via `location.href`. **Same-origin only** by default — see [security](#security-same-origin-navigation). |
+| `H-Location` | URL | Client-side (AJAX) navigation: fetch the URL, swap `<body>`, push history. No full reload. **Same-origin only.** |
+| `H-Refresh` | `true` | Reload the current page. |
+
+`H-Refresh`, `H-Redirect`, `H-Location`, and `H-Trigger` are processed on **any**
+status code. `H-Retarget`/`H-Reswap`/`H-Reselect`, `H-Trigger-After-Swap`, and the
+URL headers apply to the swap (success path), and `H-Retarget`/`H-Reswap`
+additionally redirect error placement.
+
+### Security: same-origin navigation
+
+Response-driven navigation is restricted to the current origin so a compromised or
+malicious upstream response cannot turn HelmJS into an open redirect:
+
+- **`H-Location`** must be same-origin. A cross-origin URL is ignored and an
+  `h:error` event is emitted (`detail.error` explains why); nothing is fetched.
+- **`H-Redirect`** is same-origin by default. Cross-origin redirects require an
+  explicit, page-level opt-in — add `h-allow-cross-origin` to the `<html>` element:
+
+  ```html
+  <html h-allow-cross-origin> <!-- enables cross-origin H-Redirect for this page -->
+  ```
+
+  Without the opt-in, a cross-origin `H-Redirect` is ignored and emits `h:error`.
+
+URLs are resolved against `location.href` before the origin comparison, so relative
+URLs (`/login`, `../x`) always pass.
+
+### H-Trigger timing
+
+`H-Trigger` fires **before** the swap (matching htmx's `HX-Trigger`), so its handlers
+observe the DOM *before* the response is applied. When a handler needs to act on the
+newly inserted content (measure it, focus it, initialize a widget), use
+`H-Trigger-After-Swap`, which fires immediately after the swap and the `h:swapped`
+event. On a redirect/refresh/location short-circuit there is no swap, so
+`H-Trigger-After-Swap` does not fire.
+
+### Example: server places the response wherever it wants
+
+```python
+# Flask-style handler — the client used h-target="#form", but the server decides
+# the validation error belongs in #form-errors and should not change the URL.
+resp = make_response(render_template("errors.html"), 422)
+resp.headers["H-Retarget"] = "#form-errors"
+resp.headers["H-Reswap"]   = "inner"
+return resp
+```
+
+```python
+# After a successful create, send the user to the canonical resource URL and
+# notify the rest of the page — all without any client-side routing.
+resp = make_response(render_template("item.html"))
+resp.headers["H-Push-Url"] = f"/items/{item.id}"
+resp.headers["H-Trigger"]  = '{"item:created":{"id": %d}}' % item.id
+return resp
+```
+
+---
+
+## Progressive Enhancement (`h-boost`)
+
+`h-boost` is the most HATEOAS-pure usage: the server emits plain hypermedia and the
+client adds no API-specific attributes.
+
+```html
+<body h-boost>
+  <nav><a href="/about">About</a></nav>
+  <form action="/search" method="get"><input name="q"><button>Search</button></form>
+</body>
+```
+
+Within an `h-boost` container:
+
+- Plain `<a href>` and `<form action>` are upgraded to fetch + swap the `<body>`
+  contents (`h-target` defaults to `body`, `h-swap` to `inner`, response `<body>`
+  auto-extracted) and **push the URL** by default (GET).
+- Boosted `<form>` derives its method from the native `method` attribute (GET/POST).
+- Links the browser should handle natively are **not** boosted: `target` (e.g.
+  `_blank`), `download`, in-page `#fragment` links, and cross-origin URLs.
+- Any subtree can opt out with `h-boost="false"`.
+- Explicit `h-*` attributes still win — you can boost a region but override
+  `h-target`/`h-swap`/`h-push-url` on individual elements.
+
+**Degradation:** with JavaScript disabled, every boosted element is just a normal
+link/form, so the browser performs a full page load to the same destination.
+
+---
+
+## Graceful Degradation Contract
+
+Every requesting element must resolve to a working **native** control with JS off:
+
+| Control | No-JS requirement |
+|---------|-------------------|
+| `h-get` on `<a>` | real `href` (the native navigation) |
+| `h-get` on `<form>` | real `action` (native GET submission) |
+| `h-post` on `<form>` | real `action` **and** `method="post"` |
+| `h-put`/`h-patch`/`h-delete` on `<form>` | real `action`; native forms only do GET/POST, so provide a server-side fallback (e.g. `method="post"` + `_method` override) |
+| boosted `<a>`/`<form>` | already plain native controls |
+
+HelmJS never strips `href`/`action`/`method`. A control whose URL is missing is
+**not** hijacked — it remains a plain element. These guarantees are covered by the
+automated tests in `test/helm.test.mjs` (the "degradation" group).
 
 ---
 
