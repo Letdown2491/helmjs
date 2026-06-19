@@ -965,19 +965,71 @@ test('combobox: a server-rendered h-active option makes Enter pick it immediatel
 })
 
 // ---------------------------------------------------------------------------
-// View Transitions: an overlapping swap skips the transition (one runs at a
-// time). The skip is benign (DOM already updated), so it must not error.
+// View Transitions: OPT-IN (off by default). Per-swap via h-swap="… transition"
+// or h-transition; globally via <html h-view-transitions>. The opted-in path
+// keeps the "skipped/interrupted transition is benign" handling.
 // ---------------------------------------------------------------------------
 
+// Stub startViewTransition; `calls` counts how often it ran (0 => instant swap).
 const withViewTransition = (impl) => {
   const doc = window.document
-  doc.startViewTransition = impl
-  return () => { delete doc.startViewTransition }
+  const calls = { n: 0 }
+  doc.startViewTransition = (cb) => { calls.n++; return impl(cb) }
+  return { calls, restore: () => { delete doc.startViewTransition } }
 }
+// A transition that runs the callback and resolves cleanly.
+const okVT = (cb) => (cb(), { updateCallbackDone: Promise.resolve(), ready: Promise.resolve(), finished: Promise.resolve() })
 
-test('view transition: a skipped/overlapping transition swaps cleanly (no h:error)', async () => {
+test('view transition: OFF by default — swaps instantly, no transition', async () => {
+  const { calls, restore } = withViewTransition(okVT)
+  try {
+    setRouter(() => ({ body: '<p>swapped</p>' }))
+    mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">go</a><div id="out"></div>')
+    click($('#a'))
+    await tick(10)
+    assert.equal($('#out').innerHTML, '<p>swapped</p>')
+    assert.equal(calls.n, 0, 'no View Transition by default')
+  } finally { restore() }
+})
+
+test('view transition: per-swap opt-in via h-swap="inner transition"', async () => {
+  const { calls, restore } = withViewTransition(okVT)
+  try {
+    setRouter(() => ({ body: '<p>swapped</p>' }))
+    mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner transition">go</a><div id="out"></div>')
+    click($('#a'))
+    await tick(10)
+    assert.equal($('#out').innerHTML, '<p>swapped</p>', 'strategy still parsed as inner')
+    assert.equal(calls.n, 1, 'opted in via the transition modifier')
+  } finally { restore() }
+})
+
+test('view transition: per-swap opt-in via the h-transition attribute', async () => {
+  const { calls, restore } = withViewTransition(okVT)
+  try {
+    setRouter(() => ({ body: '<p>x</p>' }))
+    mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner" h-transition>go</a><div id="out"></div>')
+    click($('#a'))
+    await tick(10)
+    assert.equal(calls.n, 1)
+  } finally { restore() }
+})
+
+test('view transition: global opt-in via <html h-view-transitions>', async () => {
+  const { calls, restore } = withViewTransition(okVT)
+  window.document.documentElement.setAttribute('h-view-transitions', '')
+  try {
+    setRouter(() => ({ body: '<p>x</p>' }))
+    mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">go</a><div id="out"></div>')
+    click($('#a'))
+    await tick(10)
+    assert.equal(calls.n, 1, 'global flag applies even without a per-swap modifier')
+  } finally { restore(); window.document.documentElement.removeAttribute('h-view-transitions') }
+})
+
+test('view transition (opted in): a skipped/overlapping transition swaps cleanly (no h:error)', async () => {
   // Skip: ready/finished reject with "Skipped ViewTransition", callback still ran.
-  const restore = withViewTransition((cb) => {
+  const { restore } = withViewTransition((cb) => {
     cb()
     return {
       updateCallbackDone: Promise.resolve(),
@@ -988,7 +1040,7 @@ test('view transition: a skipped/overlapping transition swaps cleanly (no h:erro
   try {
     await withErrors(async (errs) => {
       setRouter(() => ({ body: '<p>swapped</p>' }))
-      mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">go</a><div id="out"></div>')
+      mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner transition">go</a><div id="out"></div>')
       click($('#a'))
       await tick(10)
       assert.equal($('#out').innerHTML, '<p>swapped</p>', 'DOM still swapped')
@@ -997,9 +1049,9 @@ test('view transition: a skipped/overlapping transition swaps cleanly (no h:erro
   } finally { restore() }
 })
 
-test('view transition: a genuine swap-callback error still surfaces as h:error', async () => {
+test('view transition (opted in): a genuine swap-callback error still surfaces as h:error', async () => {
   const boom = new Error('boom')
-  const restore = withViewTransition(() => ({
+  const { restore } = withViewTransition(() => ({
     updateCallbackDone: Promise.reject(boom),
     ready: Promise.reject(boom),
     finished: Promise.reject(boom),
@@ -1007,7 +1059,7 @@ test('view transition: a genuine swap-callback error still surfaces as h:error',
   try {
     await withErrors(async (errs) => {
       setRouter(() => ({ body: '<p>x</p>' }))
-      mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">go</a><div id="out"></div>')
+      mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner transition">go</a><div id="out"></div>')
       click($('#a'))
       await tick(10)
       assert.equal(errs.length, 1, 'real callback error is not swallowed')

@@ -7,6 +7,11 @@ interface HConfig {
   method: HttpMethod
   target: Element
   swap: SwapStrategy
+  // Wrap this swap in a View Transition. Off by default (whole-viewport
+  // cross-fades ghost on rapid/concurrent partial swaps); opt in per-swap with
+  // `h-swap="… transition"`/`h-transition`, or globally with <html
+  // h-view-transitions>. A before-request listener can also toggle it.
+  transition: boolean
   body: FormData | null
   headers: Record<string, string>
 }
@@ -265,7 +270,12 @@ const applyResponse = async (
   const scrollAttr = attr(el, 'h-scroll')
   const scrollEl = scrollAttr === 'target' ? cfg.target : null
   const doIt = () => doSwap(cfg.target, html, cfg.swap)
-  if (document.startViewTransition) {
+  // View Transitions are opt-in: instant by default (whole-viewport cross-fades
+  // ghost on rapid/concurrent partial swaps), enabled per-swap via cfg.transition
+  // or globally with <html h-view-transitions>.
+  const useVT = typeof document.startViewTransition === 'function' &&
+    (cfg.transition || document.documentElement.hasAttribute('h-view-transitions'))
+  if (useVT) {
     const vt = document.startViewTransition(doIt)
     // A near-simultaneous swap skips this transition (only one runs at a time);
     // its `ready`/`finished` reject with a benign "Skipped ViewTransition", but
@@ -391,7 +401,11 @@ const init = (el: Element): void => {
     const boost = boosted(el)
     const tgtSel = src('h-target') || (boost ? 'body' : '')
     const target = tgtSel ? $(tgtSel) ?? el : el
-    const swap = src('h-swap', 'inner') as SwapStrategy
+    // h-swap is "<strategy> [transition]"; the optional `transition` modifier (or
+    // a standalone h-transition attribute) opts this swap into a View Transition.
+    const swapParts = src('h-swap', 'inner').split(/\s+/)
+    const swap = (swapParts[0] || 'inner') as SwapStrategy
+    const transition = swapParts.includes('transition') || el.hasAttribute('h-transition')
     const selDefault = src('h-select') || (boost ? 'body' : '')
     const hdrAttr = src('h-headers')
     let headers = hdrs(tgtSel)
@@ -436,7 +450,7 @@ const init = (el: Element): void => {
 
     const cfg: HConfig = {
       trigger: evt, action, method,
-      target, swap, body: isGet || method === 'DELETE' ? null : body, headers
+      target, swap, transition, body: isGet || method === 'DELETE' ? null : body, headers
     }
 
     evt.preventDefault()

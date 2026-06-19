@@ -38,7 +38,7 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 3. **Strict HATEOAS compliance** - The client never invents URLs. All actions come from server-provided hypermedia controls. The server can drive every transition from the response via [response headers](#response-headers-server-driven-control), and plain hypermedia can be enhanced transparently with [`h-boost`](#progressive-enhancement-h-boost). See the [compliance summary](README.md#compliance-summary) in the README.
 
-4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~5.4KB gzipped (see [Size](README.md#size) for what that buys).
+4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~5.5KB gzipped (see [Size](README.md#size) for what that buys).
 
 5. **Intuitive defaults** - Zero config for common cases. Opinionated defaults enforce good hypermedia practices.
 
@@ -134,7 +134,8 @@ intent (pick a fragment), different layer: the server dictating it from the resp
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
 | `h-target` | any | CSS selector for response destination. Default: the triggering element. **Fallback only**: prefer server-declared placement (`h-oob` or the `H-Retarget` response header), which keeps responses self-descriptive. |
-| `h-swap` | any | How to insert the response. Default: `inner`. Use `h-swap="morph"` to opt into DOM-diffing. Overridable per-response with `H-Reswap`. |
+| `h-swap` | any | How to insert the response. Default: `inner`. Use `h-swap="morph"` to opt into DOM-diffing. Append a `transition` modifier (`h-swap="inner transition"`) to wrap this swap in a View Transition. Overridable per-response with `H-Reswap`. |
+| `h-transition` | any | Boolean: wrap this swap in a View Transition (same as the `transition` modifier on `h-swap`). See [View Transitions](#view-transitions). |
 | `h-select` | any | CSS selector to extract a fragment from the response before swapping. Overridable per-response with `H-Reselect`. |
 | `h-scroll` | any | Scroll behavior after swap: `top`, `bottom`, `target`, or a CSS selector. |
 | `h-focus` | any | CSS selector for element to focus after swap. |
@@ -659,6 +660,7 @@ interface HConfig {
   method: HttpMethod   // GET, POST, PUT, PATCH, DELETE
   target: Element      // Swap destination
   swap: SwapStrategy   // How to swap
+  transition: boolean  // Wrap the swap in a View Transition (opt-in)
   body: FormData|null  // Request body (forms only)
   headers: Record<string, string>  // Request headers
 }
@@ -1014,25 +1016,32 @@ The title is also stored in history state, ensuring back/forward navigation show
 
 ## View Transitions
 
-HelmJS automatically uses the View Transitions API when available:
+View Transitions are **opt-in** (off by default). The API runs one transition at a
+time and cross-fades the whole viewport, which ghosts on rapid/concurrent partial
+swaps (infinite-scroll appends, `intersect`/`load` lazy-loaders, polling regions, OOB
+updates) and is usually wrong for a small partial update anyway. So by default swaps
+apply instantly; enable a transition only where it makes sense (typically a full-page
+boosted navigation).
 
-```javascript
-if (document.startViewTransition) {
-  const vt = document.startViewTransition(() => doSwap(...))
-  vt.ready.catch(() => {}); vt.finished.catch(() => {})
-  await vt.updateCallbackDone
-}
+**Per-swap** — add the `transition` modifier to `h-swap`, or the standalone
+`h-transition` attribute:
+
+```html
+<a href="/page" h-get h-target="#main" h-swap="inner transition">Animate this swap</a>
+<a href="/page" h-get h-target="#main" h-transition>Same, as a boolean attribute</a>
 ```
 
-Only one View Transition runs at a time, so near-simultaneous swaps (several
-`h-trigger="intersect once"` loaders becoming visible together, OOB, polling) skip
-each other's transitions. A skip is **benign**: the DOM update callback still ran,
-so the content swaps correctly and only the animation is dropped. HelmJS awaits
-`updateCallbackDone` (not `finished`) so the swap applies and a genuine error in the
-swap still surfaces as `h:error`, while the skip's `ready`/`finished` rejection is
-swallowed: no uncaught `DOMException` and no spurious `h:error`.
+**Globally** — set `h-view-transitions` on the root element to wrap every swap (this
+restores the pre-0.9 behavior):
 
-Add CSS to define transitions:
+```html
+<html h-view-transitions>
+```
+
+A `before-request` listener can also toggle it per request: `e.detail.cfg.transition
+= true`.
+
+Define the animation with CSS:
 
 ```css
 ::view-transition-old(root),
@@ -1040,6 +1049,13 @@ Add CSS to define transitions:
   animation-duration: 200ms;
 }
 ```
+
+**Skipped transitions are handled.** When two opted-in swaps overlap, the API skips
+one; its `ready`/`finished` reject with a benign "Skipped ViewTransition" — the DOM
+update callback still ran, so the content swapped, only the animation dropped. HelmJS
+awaits `updateCallbackDone` (not `finished`), so the swap applies and a genuine error
+in the swap still surfaces as `h:error`, while the skip rejection is swallowed (no
+uncaught `DOMException`, no spurious `h:error`).
 
 ---
 

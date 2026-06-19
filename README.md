@@ -3,7 +3,7 @@
 **The smallest hypermedia library where the server, not the client, drives every
 state transition, and it all degrades to plain HTML.**
 
-~5.4KB gzipped · zero dependencies · TypeScript.
+~5.5KB gzipped · zero dependencies · TypeScript.
 
 ```html
 <script src="https://unpkg.com/helmjs"></script>
@@ -224,7 +224,7 @@ design choices:
 
 ## Size
 
-~5.4KB gzipped, zero runtime dependencies. The bulk buys the full server-driven
+~5.5KB gzipped, zero runtime dependencies. The bulk buys the full server-driven
 control surface: the response headers above, which are what make the **server** the
 engine of state transitions rather than the client, plus `h-boost`, morph, prefetch,
 and the same-origin security hardening on response-driven navigation. The header

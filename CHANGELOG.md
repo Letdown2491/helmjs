@@ -7,6 +7,20 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.9.0] - 2026-06-19
+
+### Changed
+- **View Transitions are now opt-in (BREAKING).** Previously every swap was wrapped
+  in `document.startViewTransition` whenever the browser supported it. Because the
+  API runs one transition at a time and cross-fades the whole viewport, rapid or
+  concurrent partial swaps (infinite scroll, `intersect`/`load` lazy-loaders, polling,
+  OOB) ghosted, and whole-page cross-fades are wrong for most partial updates. Swaps
+  now apply **instantly by default**. Opt in per-swap with `h-swap="… transition"` or
+  the `h-transition` attribute, or globally with `<html h-view-transitions>` (which
+  restores the old behavior). The skipped-transition handling from 0.8.2 still applies
+  to the opted-in path. `HConfig` gains a `transition` boolean a `before-request`
+  listener can toggle.
+
 ## [0.8.2] - 2026-06-19
 
 ### Fixed
