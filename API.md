@@ -106,7 +106,7 @@ HelmJS uses casing to mark which layer a name belongs to:
   response (`H-Retarget`, `H-Reselect`, …). HTTP header names are case-insensitive on
   the wire, so `h-reselect` also works, but Title-Case is the HTTP convention and
   makes "this is a header, not an attribute" obvious at a glance.
-- **`h:*`** — DOM events (`h:before`, `h:swapped`).
+- **`h:*`** — DOM events (`h:before-request`, `h:swapped`).
 
 So `H-Reselect` is the response-header counterpart of the `h-select` attribute: same
 intent (pick a fragment), different layer — the server dictating it from the response.
@@ -489,7 +489,7 @@ HelmJS dispatches custom events throughout the request lifecycle. All events bub
 |-------|------------|--------|-------------|
 | `h:init` | Yes | `{}` | Before element initialization. Cancel to skip. |
 | `h:ready` | No | `{}` | After element initialization complete. |
-| `h:before` | Yes | `{ cfg }` | Before request sent. Modify `cfg` to change request. |
+| `h:before-request` | Yes | `{ cfg }` | Before request sent. Modify `cfg` to change request. Cancel to skip. |
 | `h:before-swap` | Yes | `{ cfg, response, html }` | After response, before swap. Cancel to skip the swap. |
 | `h:swapped` | No | `{ cfg, response, html }` | After DOM update complete. |
 | `h:error` | No | `{ cfg, response, html }` or `{ cfg, error }` | Request failed or HTTP 4xx/5xx. |
@@ -512,7 +512,7 @@ interface HConfig {
 
 ```javascript
 // Add auth header to all requests
-document.addEventListener('h:before', (e) => {
+document.addEventListener('h:before-request', (e) => {
   e.detail.cfg.headers['Authorization'] = 'Bearer ' + token
 })
 
@@ -529,7 +529,7 @@ document.addEventListener('h:error', (e) => {
 })
 
 // Prevent specific request
-element.addEventListener('h:before', (e) => {
+element.addEventListener('h:before-request', (e) => {
   if (someCondition) e.preventDefault()
 })
 ```

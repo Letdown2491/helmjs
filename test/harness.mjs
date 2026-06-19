@@ -28,7 +28,7 @@ const makeRes = ({ status = 200, headers = {}, body = '' }) => ({
 })
 
 globalThis.fetch = async (url, opts = {}) => {
-  captured.fetches.push({ url: String(url), method: opts.method || 'GET', headers: opts.headers || {} })
+  captured.fetches.push({ url: String(url), method: opts.method || 'GET', headers: opts.headers || {}, signal: !!opts.signal })
   return makeRes(router(String(url), opts))
 }
 

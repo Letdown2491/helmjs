@@ -244,7 +244,9 @@ const init = (el: Element): void => {
   const defaultTrigger = el.tagName === 'FORM' ? 'submit' : 'click'
   const triggers = attr(el, 'h-trigger', defaultTrigger).split(',').map(t => t.trim()).filter(Boolean)
 
-  const sync = attr(el, 'h-sync')
+  // Polling defaults to aborting an in-flight request so slow responses can't
+  // stack or apply out of order; override with an explicit h-sync.
+  const sync = attr(el, 'h-sync') || (triggers.some(t => t.split(/\s+/)[0] === 'every') ? 'abort' : '')
 
   const baseHandler = async (evt: Event): Promise<void> => {
     const confirmMsg = attr(el, 'h-confirm')
@@ -285,7 +287,7 @@ const init = (el: Element): void => {
     }
 
     evt.preventDefault()
-    if (!emit(el, 'before', { cfg })) return
+    if (!emit(el, 'before-request', { cfg })) return
 
     // h-disable: absent => auto-disable submit controls during mutations only;
     // "" (present) or a selector => disable on any method; "false" => opt out.

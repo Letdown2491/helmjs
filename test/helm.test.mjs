@@ -367,6 +367,20 @@ test('h-disable="<selector>" also disables matched elements', async () => {
 // h:before-swap (renamed from h:after): fires after response, before swap.
 // ---------------------------------------------------------------------------
 
+test('h:before-request is cancelable and can mutate the request', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  let seen = false
+  const h = (e) => { seen = !!e.detail.cfg; e.preventDefault() }
+  window.document.addEventListener('h:before-request', h)
+  mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">Go</a><div id="out"><p>old</p></div>')
+  click($('#a'))
+  await tick(10)
+  window.document.removeEventListener('h:before-request', h)
+  assert.equal(seen, true)
+  assert.equal(captured.fetches.length, 0) // canceling h:before-request blocks the request
+  assert.equal($('#out').innerHTML, '<p>old</p>')
+})
+
 test('h:before-swap is cancelable and fires before the swap', async () => {
   setRouter(() => ({ body: '<p>new</p>' }))
   let sawAtFire = null
@@ -394,6 +408,24 @@ test('h-trigger="every" polls on an interval and stops when detached', async () 
   root.remove() // detach -> next tick clears the interval
   await tick(80)
   assert.ok(captured.fetches.length <= n + 1, 'polling stopped after detach')
+})
+
+test('polling defaults to h-sync="abort" (requests carry an abort signal)', async () => {
+  setRouter(() => ({ body: '<p>x</p>' }))
+  const root = mount('<a id="a" href="/poll" h-get h-trigger="every 30ms" h-target="#out">P</a><div id="out"></div>')
+  await tick(50)
+  root.remove()
+  await tick(40)
+  assert.ok(captured.fetches.length >= 1)
+  assert.ok(captured.fetches.every((f) => f.signal === true), 'every poll used an abort controller')
+})
+
+test('a plain click request has no abort signal by default', async () => {
+  setRouter(() => ({ body: '<p>x</p>' }))
+  mount('<a id="a" href="/x" h-get h-target="#out">Go</a><div id="out"></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal(captured.fetches[0].signal, false)
 })
 
 test('h-get value is the URL source on a non-anchor/form element (div polling)', async () => {

@@ -169,12 +169,12 @@ This form:
 ## Events
 
 ```javascript
-document.addEventListener('h:before', (e) => {
+document.addEventListener('h:before-request', (e) => {
   e.detail.cfg.headers['X-Custom'] = 'value'
 })
 ```
 
-Events: `h:init`, `h:ready`, `h:before`, `h:before-swap`, `h:swapped`, `h:error`, `h:sse-message`
+Events: `h:init`, `h:ready`, `h:before-request`, `h:before-swap`, `h:swapped`, `h:error`, `h:sse-message`
 
 ## Intentional deviations
 

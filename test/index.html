@@ -737,12 +737,12 @@
     const indicator = document.getElementById('loading-indicator');
     const eventLink = document.getElementById('event-link');
 
-    ['h:before', 'h:before-swap', 'h:swapped', 'h:error'].forEach(evt => {
+    ['h:before-request', 'h:before-swap', 'h:swapped', 'h:error'].forEach(evt => {
       eventLink.addEventListener(evt, (e) => {
         const time = new Date().toLocaleTimeString();
         log.innerHTML = `<div>[${time}] ${evt}</div>` + log.innerHTML;
 
-        if (evt === 'h:before') indicator.classList.add('loading');
+        if (evt === 'h:before-request') indicator.classList.add('loading');
         if (evt === 'h:swapped' || evt === 'h:error') indicator.classList.remove('loading');
       });
     });
@@ -756,7 +756,7 @@
         dropClickCount++;
         syncDropLog.innerHTML += `<div>[${new Date().toLocaleTimeString()}] Click #${dropClickCount}</div>`;
       });
-      syncDropLink.addEventListener('h:before', () => {
+      syncDropLink.addEventListener('h:before-request', () => {
         syncDropLog.innerHTML += `<div style="color: blue;">[${new Date().toLocaleTimeString()}] Request started</div>`;
       });
       syncDropLink.addEventListener('h:swapped', () => {
