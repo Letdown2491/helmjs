@@ -496,7 +496,7 @@ HelmJS dispatches custom events throughout the request lifecycle. All events bub
 | `h:init` | Yes | `{}` | Before element initialization. Cancel to skip. |
 | `h:ready` | No | `{}` | After element initialization complete. |
 | `h:before-request` | Yes | `{ cfg }` | Before request sent. Modify `cfg` to change request. Cancel to skip. |
-| `h:before-swap` | Yes | `{ cfg, response, html }` | After response, before swap. Cancel to skip the swap. |
+| `h:before-swap` | Yes | `{ cfg, response, html, swap }` | After response, before swap. Cancel to skip the swap. `swap(html, response?)` re-enters the pipeline (see [Deferred / async swaps](#deferred--async-swaps)). |
 | `h:swapped` | No | `{ cfg, response, html }` | After DOM update complete. |
 | `h:error` | No | `{ cfg, response, html }` or `{ cfg, error }` | Request failed or HTTP 4xx/5xx. |
 
@@ -539,6 +539,47 @@ element.addEventListener('h:before-request', (e) => {
   if (someCondition) e.preventDefault()
 })
 ```
+
+### Deferred / async swaps
+
+`h:before-swap` lets a listener **take over** the swap, do asynchronous work, and
+then hand replacement content back to HelmJS so the **normal swap pipeline** still
+runs on it (placement headers, OOB, view transitions, `h:swapped`, scroll/focus,
+push/replace URL). This avoids hand-rolling a swap and losing those behaviors.
+
+The seam is `e.detail.swap(html, response?)`:
+
+```javascript
+document.addEventListener('h:before-swap', (e) => {
+  e.preventDefault()                 // take over: the default swap is skipped
+  ;(async () => {
+    const html = await transform(e.detail.html)   // your async step
+    await e.detail.swap(html)        // re-enter the standard swap pipeline
+  })()
+})
+```
+
+- **Call `preventDefault()`.** A listener that calls `swap()` is taking over;
+  `preventDefault()` is what stops the default swap from also running (no
+  double-swap). The default swap stays gated on the event not being canceled.
+- **`html`** is placed exactly as a normal response would be: into `cfg.target`
+  with `cfg.swap`, inside the View Transition wrapper when available, followed by
+  `h:swapped` and the usual scroll/focus/history effects.
+- **`response`** (optional) supplies the placement headers to honor:
+  `H-Reselect`, `H-Retarget`, `H-Reswap`, `H-Push-Url`/`H-Replace-Url`, and
+  `H-Trigger`/`H-Trigger-After-Swap`. Pass a `Response` (or any object with a
+  `headers.get(name)` method) when your async step fetched a follow-up response.
+  Omit it to reuse the **original** response's headers.
+- Returns a `Promise` that resolves once the swap (including any view
+  transition) completes, so you can `await` it.
+
+> The seam is deliberately domain-agnostic: it only moves HTML through the same
+> pipeline. Use cases such as transforming, decrypting, or signing a payload and
+> fetching a follow-up response live entirely in your listener.
+
+The early-return navigation headers on the **original** response (`H-Refresh`,
+`H-Redirect`, `H-Location`) are handled before `h:before-swap` fires; they are not
+re-evaluated for a re-entry via `swap()`.
 
 ### Manual Processing
 

@@ -11,6 +11,19 @@ interface HConfig {
   headers: Record<string, string>
 }
 
+// Detail carried by the cancelable h:before-swap event. `swap` is the re-entry
+// seam: a listener that calls preventDefault() (taking over the swap) may do
+// async work and then call swap(html, response?) to feed replacement content
+// back through helmjs's normal swap pipeline. A given response supplies the
+// placement headers (H-Reselect/Retarget/Reswap/Push-Url/Trigger); omit it to
+// reuse the original response's headers. Resolves when the swap completes.
+interface BeforeSwapDetail {
+  cfg: HConfig
+  response: Response
+  html: string
+  swap: (html: string, response?: Response) => Promise<void>
+}
+
 interface HState {
   h: true
   url: string
@@ -199,6 +212,89 @@ const morphNodes = (old: Element, next: Element): void => {
   morphChildren(old, next)
 }
 
+// Apply a fetched response: honor its placement headers (reselect/retarget/
+// reswap/trigger), then place 4xx/5xx errors or run the swap pipeline (OOB,
+// view-transition-wrapped swap, h:swapped, scroll/focus, push/replace URL).
+// `gate` true is the normal path: it emits the cancelable h:before-swap. A
+// canceled listener can re-enter via detail.swap, which calls this again with
+// gate false so the default swap never double-fires.
+const applyResponse = async (
+  el: Element, cfg: HConfig, res: Response, html: string,
+  boost: boolean, isGet: boolean, tgtSel: string, url: string, gate: boolean,
+): Promise<void> => {
+  const H = (n: string) => res.headers.get(n)
+  // H-Trigger fires on receive (pre-swap, htmx parity); H-Trigger-After-Swap
+  // fires once the swap is applied so handlers can see the new DOM.
+  const trig = H('H-Trigger')
+  if (trig) fireTriggers(el, trig)
+  const trigAfter = H('H-Trigger-After-Swap')
+
+  // The response may override the client's pre-declared placement/selection,
+  // so the requesting element needn't carry out-of-band layout knowledge.
+  const reSelect = H('H-Reselect')
+  const selSel = reSelect ?? (attr(el, 'h-select') || (boost ? 'body' : ''))
+  if (selSel) html = selectFragment(html, selSel)
+  const reTarget = H('H-Retarget')
+  if (reTarget) { const t = $(reTarget); if (t) cfg.target = t }
+  const reSwap = H('H-Reswap')
+  const validReSwap: SwapStrategy | null = reSwap && SWAP_RE.test(reSwap) ? reSwap as SwapStrategy : null
+  if (validReSwap) cfg.swap = validReSwap
+  const histTarget = reTarget || tgtSel || null
+
+  if (res.status >= 400) {
+    // Error placement: server-driven via H-Retarget, else a conventional
+    // [h-error] region if the page provides one; always fire h:error.
+    const errTgt = reTarget ? cfg.target : $('[h-error]')
+    if (errTgt) doSwap(errTgt, html, validReSwap || 'inner')
+    emit(el, 'error', { cfg, response: res, html })
+    return
+  }
+  // The seam: bind a closure over (el, cfg) and re-enter with gate false so a
+  // listener can defer the swap. Omitting the response reuses the original's.
+  const detail: BeforeSwapDetail = {
+    cfg, response: res, html,
+    swap: (h, r = res) => applyResponse(el, cfg, r, h, boost, isGet, tgtSel, url, false),
+  }
+  if (gate && !emit(el, 'before-swap', detail)) return
+
+  html = processOOB(html)
+  const scrollAttr = attr(el, 'h-scroll')
+  const scrollEl = scrollAttr === 'target' ? cfg.target : null
+  const doIt = () => doSwap(cfg.target, html, cfg.swap)
+  if (document.startViewTransition) await document.startViewTransition(doIt).finished
+  else doIt()
+
+  emit(el, 'swapped', { cfg, response: res, html })
+  if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg, response: res, html })
+  if (trigAfter) fireTriggers(el, trigAfter)
+
+  if (scrollAttr) {
+    if (scrollAttr === 'target' && cfg.swap === 'outer') {
+      const newEl = scrollEl?.id ? document.getElementById(scrollEl.id) : null
+      if (newEl) newEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else doScroll(cfg.target, scrollAttr)
+  }
+
+  const focusSel = attr(el, 'h-focus')
+  if (focusSel) ($(focusSel) as HTMLElement | null)?.focus?.()
+
+  // URL changes: server headers (H-Push-Url / H-Replace-Url) win over
+  // attributes; boosted GET navigation pushes by default. A header value
+  // of "false" suppresses; any other value is the URL to write.
+  const pushAttr = el.getAttribute('h-push-url'), replAttr = el.getAttribute('h-replace-url')
+  const pushHdr = H('H-Push-Url'), replHdr = H('H-Replace-Url')
+  let pushUrl: string | null = pushHdr ? (pushHdr === 'false' ? null : pushHdr)
+    : (pushAttr === 'false' ? null : (pushAttr !== null || (boost && isGet)) ? url : null)
+  let replUrl: string | null = replHdr ? (replHdr === 'false' ? null : replHdr)
+    : (replAttr === 'false' ? null : replAttr !== null ? url : null)
+  if (pushUrl || replUrl) {
+    const navUrl = (pushUrl || replUrl)!
+    const hist: HState = { h: true, url: navUrl, target: histTarget, swap: cfg.swap, select: selSel || null, title: document.title }
+    if (pushUrl) history.pushState(hist, '', navUrl)
+    else history.replaceState(hist, '', navUrl)
+  }
+}
+
 // Client-side navigation to a server-provided URL (H-Location / boosted history
 // restore): fetch HTML, swap the <body>, and record a re-derivable history entry.
 const navigate = async (url: string): Promise<void> => {
@@ -344,68 +440,10 @@ const init = (el: Element): void => {
         else emit(el, 'error', { cfg, error: Error('cross-origin H-Location blocked') })
         return
       }
-      // H-Trigger fires on receive (pre-swap, htmx parity); H-Trigger-After-Swap
-      // fires once the swap is applied so handlers can see the new DOM.
-      const trig = H('H-Trigger')
-      if (trig) fireTriggers(el, trig)
-      const trigAfter = H('H-Trigger-After-Swap')
-
-      // The response may override the client's pre-declared placement/selection,
-      // so the requesting element needn't carry out-of-band layout knowledge.
-      const reSelect = H('H-Reselect')
-      const selSel = reSelect ?? (attr(el, 'h-select') || (boost ? 'body' : ''))
-      if (selSel) html = selectFragment(html, selSel)
-      const reTarget = H('H-Retarget')
-      if (reTarget) { const t = $(reTarget); if (t) cfg.target = t }
-      const reSwap = H('H-Reswap')
-      const validReSwap: SwapStrategy | null = reSwap && SWAP_RE.test(reSwap) ? reSwap as SwapStrategy : null
-      if (validReSwap) cfg.swap = validReSwap
-      const histTarget = reTarget || tgtSel || null
-
-      if (res.status >= 400) {
-        // Error placement: server-driven via H-Retarget, else a conventional
-        // [h-error] region if the page provides one; always fire h:error.
-        const errTgt = reTarget ? cfg.target : $('[h-error]')
-        if (errTgt) doSwap(errTgt, html, validReSwap || 'inner')
-        emit(el, 'error', { cfg, response: res, html })
-      } else if (emit(el, 'before-swap', { cfg, response: res, html })) {
-        html = processOOB(html)
-        const scrollAttr = attr(el, 'h-scroll')
-        const scrollEl = scrollAttr === 'target' ? cfg.target : null
-        const doIt = () => doSwap(cfg.target, html, cfg.swap)
-        if (document.startViewTransition) await document.startViewTransition(doIt).finished
-        else doIt()
-
-        emit(el, 'swapped', { cfg, response: res, html })
-        if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg, response: res, html })
-        if (trigAfter) fireTriggers(el, trigAfter)
-
-        if (scrollAttr) {
-          if (scrollAttr === 'target' && cfg.swap === 'outer') {
-            const newEl = scrollEl?.id ? document.getElementById(scrollEl.id) : null
-            if (newEl) newEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          } else doScroll(cfg.target, scrollAttr)
-        }
-
-        const focusSel = attr(el, 'h-focus')
-        if (focusSel) ($(focusSel) as HTMLElement | null)?.focus?.()
-
-        // URL changes: server headers (H-Push-Url / H-Replace-Url) win over
-        // attributes; boosted GET navigation pushes by default. A header value
-        // of "false" suppresses; any other value is the URL to write.
-        const pushAttr = el.getAttribute('h-push-url'), replAttr = el.getAttribute('h-replace-url')
-        const pushHdr = H('H-Push-Url'), replHdr = H('H-Replace-Url')
-        let pushUrl: string | null = pushHdr ? (pushHdr === 'false' ? null : pushHdr)
-          : (pushAttr === 'false' ? null : (pushAttr !== null || (boost && isGet)) ? url : null)
-        let replUrl: string | null = replHdr ? (replHdr === 'false' ? null : replHdr)
-          : (replAttr === 'false' ? null : replAttr !== null ? url : null)
-        if (pushUrl || replUrl) {
-          const navUrl = (pushUrl || replUrl)!
-          const hist: HState = { h: true, url: navUrl, target: histTarget, swap: cfg.swap, select: selSel || null, title: document.title }
-          if (pushUrl) history.pushState(hist, '', navUrl)
-          else history.replaceState(hist, '', navUrl)
-        }
-      }
+      // Hand off to the shared "apply response" pipeline (gate true emits the
+      // cancelable h:before-swap; a canceled listener can re-enter via
+      // detail.swap). H-Trigger fires inside on receive, before the swap.
+      await applyResponse(el, cfg, res, html, boost, isGet, tgtSel, url, true)
     } catch (error) {
       if ((error as Error).name === 'AbortError') return
       emit(el, 'error', { cfg, error })

@@ -179,6 +179,11 @@ document.addEventListener('h:before-request', (e) => {
 
 Events: `h:init`, `h:ready`, `h:before-request`, `h:before-swap`, `h:swapped`, `h:error`, `h:sse-message`
 
+A `h:before-swap` listener can `preventDefault()`, do async work, then call
+`e.detail.swap(html, response?)` to re-enter the normal swap pipeline with
+replacement content (placement headers, OOB, view transitions, history, and
+`h:swapped` all still run). See [Deferred / async swaps](API.md#deferred--async-swaps).
+
 ## Intentional deviations
 
 Some attributes are deliberately *not* server-driven, because they configure

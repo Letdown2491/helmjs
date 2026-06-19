@@ -395,6 +395,59 @@ test('h:before-swap is cancelable and fires before the swap', async () => {
 })
 
 // ---------------------------------------------------------------------------
+// Deferred / async swaps: a before-swap listener cancels, does async work, then
+// re-enters the pipeline via e.detail.swap(html, response?).
+// ---------------------------------------------------------------------------
+
+test('before-swap seam: detail.swap re-enters the pipeline with overridden placement', async () => {
+  // Build a synthetic Response-like object carrying its own placement headers.
+  const reHeaders = { 'H-Retarget': '#other', 'H-Reswap': 'append' }
+  const fakeResponse = {
+    status: 200,
+    ok: true,
+    headers: { get: (n) => reHeaders[Object.keys(reHeaders).find((k) => k.toLowerCase() === n.toLowerCase())] ?? null },
+    text: async () => '<p>deferred</p>',
+  }
+
+  setRouter(() => ({ body: '<p>original</p>' }))
+  let swappedHtml = null, defaultRan = false
+  const onSwapped = (e) => { swappedHtml = e.detail.html }
+  // A listener takes over: cancel the default swap, then (async) hand back new content.
+  const onBeforeSwap = (e) => {
+    e.preventDefault()
+    Promise.resolve().then(() => e.detail.swap('<p>deferred</p>', fakeResponse))
+  }
+  window.document.addEventListener('h:swapped', onSwapped)
+  window.document.addEventListener('h:before-swap', onBeforeSwap)
+  mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">Go</a><div id="out"><span>keep</span></div><div id="other"><span>keep2</span></div>')
+  click($('#a'))
+  await tick(20)
+  window.document.removeEventListener('h:swapped', onSwapped)
+  window.document.removeEventListener('h:before-swap', onBeforeSwap)
+
+  // Default swap did NOT run (original target untouched, original html never swapped).
+  assert.equal($('#out').innerHTML, '<span>keep</span>')
+  assert.notEqual(swappedHtml, '<p>original</p>')
+  // Re-entry honored the new response: retargeted to #other with append strategy.
+  assert.equal($('#other').innerHTML, '<span>keep2</span><p>deferred</p>')
+  // h:swapped fired with the new html.
+  assert.equal(swappedHtml, '<p>deferred</p>')
+})
+
+test('before-swap seam: detail.swap without a response reuses the original headers', async () => {
+  setRouter(() => ({ headers: { 'H-Retarget': '#other' }, body: '<p>orig</p>' }))
+  const onBeforeSwap = (e) => { e.preventDefault(); e.detail.swap('<p>transformed</p>') }
+  window.document.addEventListener('h:before-swap', onBeforeSwap)
+  mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">Go</a><div id="out"></div><div id="other"></div>')
+  click($('#a'))
+  await tick(20)
+  window.document.removeEventListener('h:before-swap', onBeforeSwap)
+  // Original response's H-Retarget still applied; only the html was replaced.
+  assert.equal($('#out').innerHTML, '')
+  assert.equal($('#other').innerHTML, '<p>transformed</p>')
+})
+
+// ---------------------------------------------------------------------------
 // Polling via h-trigger="every Ns" + generalized h-get URL source.
 // ---------------------------------------------------------------------------
 
