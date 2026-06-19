@@ -308,6 +308,22 @@ test('default swap replaces innerHTML (inner), not append/morph', async () => {
   assert.equal($('#out').innerHTML, '<p>new</p>')
 })
 
+test('unknown h-swap value falls back to inner (not a silent no-op)', async () => {
+  setRouter(() => ({ body: '<p>new</p>' }))
+  mount('<a id="a" href="/x" h-get h-target="#out" h-swap="anter">Go</a><div id="out"><p>old</p></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal($('#out').innerHTML, '<p>new</p>')
+})
+
+test('h-swap="none" still performs no swap', async () => {
+  setRouter(() => ({ body: '<p>new</p>' }))
+  mount('<a id="a" href="/x" h-get h-target="#out" h-swap="none">Go</a><div id="out"><p>old</p></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal($('#out').innerHTML, '<p>old</p>')
+})
+
 // ---------------------------------------------------------------------------
 // h-disable: one attribute (absent / "" / "false" / selector).
 // ---------------------------------------------------------------------------

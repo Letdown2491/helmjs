@@ -129,13 +129,13 @@ const processOOB = (html: string): string => {
 }
 
 const doSwap = (target: Element, html: string, s: SwapStrategy): void => {
-  if (s === 'inner') target.innerHTML = html
-  else if (s === 'outer') target.outerHTML = html
+  if (s === 'outer') target.outerHTML = html
   else if (s === 'before') target.insertAdjacentHTML('beforebegin', html)
   else if (s === 'after') target.insertAdjacentHTML('afterend', html)
   else if (s === 'prepend') target.insertAdjacentHTML('afterbegin', html)
   else if (s === 'append') target.insertAdjacentHTML('beforeend', html)
   else if (s === 'morph') morph(target, html)
+  else if (s !== 'none') target.innerHTML = html // inner (default) + unknown values
 }
 
 const morph = (target: Element, html: string): void => {
