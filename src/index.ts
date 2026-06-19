@@ -285,14 +285,17 @@ const init = (el: Element): void => {
     evt.preventDefault()
     if (!emit(el, 'before', { cfg })) return
 
-    const isMut = !isGet, noDisable = has(el, 'h-no-disable')
+    // h-disable: absent => auto-disable submit controls during mutations only;
+    // "" (present) or a selector => disable on any method; "false" => opt out.
+    // A selector value also disables the matched elements.
+    const isMut = !isGet, disVal = el.getAttribute('h-disable')
+    const force = disVal !== null && disVal !== 'false'
     const disEls: Element[] = []
-    if ((isMut && !noDisable) || has(el, 'h-disabled')) {
+    if (disVal !== 'false' && (isMut || force)) {
       if (el.tagName === 'FORM') disEls.push(...el.querySelectorAll('button, input[type="submit"]'))
       else disEls.push(el)
     }
-    const disSel = attr(el, 'h-disabled')
-    if (disSel) disEls.push(...document.querySelectorAll(disSel))
+    if (disVal && disVal !== 'false') disEls.push(...document.querySelectorAll(disVal))
     toggleDisabled(disEls, true)
 
     const indSel = attr(el, 'h-indicator')
@@ -361,7 +364,7 @@ const init = (el: Element): void => {
         const errTgt = reTarget ? cfg.target : $('[h-error]')
         if (errTgt) doSwap(errTgt, html, validReSwap || 'inner')
         emit(el, 'error', { cfg, response: res, html })
-      } else if (emit(el, 'after', { cfg, response: res, html })) {
+      } else if (emit(el, 'before-swap', { cfg, response: res, html })) {
         html = processOOB(html)
         const scrollAttr = attr(el, 'h-scroll')
         const scrollEl = scrollAttr === 'target' ? cfg.target : null
