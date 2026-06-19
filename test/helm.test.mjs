@@ -963,3 +963,55 @@ test('combobox: a server-rendered h-active option makes Enter pick it immediatel
   keydown($('#t'), 'Enter') // no arrow first
   assert.equal($('#c').value, 'hi X ')
 })
+
+// ---------------------------------------------------------------------------
+// View Transitions: an overlapping swap skips the transition (one runs at a
+// time). The skip is benign (DOM already updated), so it must not error.
+// ---------------------------------------------------------------------------
+
+const withViewTransition = (impl) => {
+  const doc = window.document
+  doc.startViewTransition = impl
+  return () => { delete doc.startViewTransition }
+}
+
+test('view transition: a skipped/overlapping transition swaps cleanly (no h:error)', async () => {
+  // Skip: ready/finished reject with "Skipped ViewTransition", callback still ran.
+  const restore = withViewTransition((cb) => {
+    cb()
+    return {
+      updateCallbackDone: Promise.resolve(),
+      ready: Promise.reject(new window.DOMException('skipped', 'AbortError')),
+      finished: Promise.reject(new window.DOMException('Skipped ViewTransition due to another transition starting', 'AbortError')),
+    }
+  })
+  try {
+    await withErrors(async (errs) => {
+      setRouter(() => ({ body: '<p>swapped</p>' }))
+      mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">go</a><div id="out"></div>')
+      click($('#a'))
+      await tick(10)
+      assert.equal($('#out').innerHTML, '<p>swapped</p>', 'DOM still swapped')
+      assert.equal(errs.length, 0, 'skip is silent, no h:error')
+    })
+  } finally { restore() }
+})
+
+test('view transition: a genuine swap-callback error still surfaces as h:error', async () => {
+  const boom = new Error('boom')
+  const restore = withViewTransition(() => ({
+    updateCallbackDone: Promise.reject(boom),
+    ready: Promise.reject(boom),
+    finished: Promise.reject(boom),
+  }))
+  try {
+    await withErrors(async (errs) => {
+      setRouter(() => ({ body: '<p>x</p>' }))
+      mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">go</a><div id="out"></div>')
+      click($('#a'))
+      await tick(10)
+      assert.equal(errs.length, 1, 'real callback error is not swallowed')
+      assert.equal(errs[0].error, boom)
+    })
+  } finally { restore() }
+})

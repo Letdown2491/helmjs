@@ -1018,9 +1018,19 @@ HelmJS automatically uses the View Transitions API when available:
 
 ```javascript
 if (document.startViewTransition) {
-  await document.startViewTransition(() => doSwap(...)).finished
+  const vt = document.startViewTransition(() => doSwap(...))
+  vt.ready.catch(() => {}); vt.finished.catch(() => {})
+  await vt.updateCallbackDone
 }
 ```
+
+Only one View Transition runs at a time, so near-simultaneous swaps (several
+`h-trigger="intersect once"` loaders becoming visible together, OOB, polling) skip
+each other's transitions. A skip is **benign**: the DOM update callback still ran,
+so the content swaps correctly and only the animation is dropped. HelmJS awaits
+`updateCallbackDone` (not `finished`) so the swap applies and a genuine error in the
+swap still surfaces as `h:error`, while the skip's `ready`/`finished` rejection is
+swallowed: no uncaught `DOMException` and no spurious `h:error`.
 
 Add CSS to define transitions:
 

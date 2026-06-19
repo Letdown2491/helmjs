@@ -265,8 +265,17 @@ const applyResponse = async (
   const scrollAttr = attr(el, 'h-scroll')
   const scrollEl = scrollAttr === 'target' ? cfg.target : null
   const doIt = () => doSwap(cfg.target, html, cfg.swap)
-  if (document.startViewTransition) await document.startViewTransition(doIt).finished
-  else doIt()
+  if (document.startViewTransition) {
+    const vt = document.startViewTransition(doIt)
+    // A near-simultaneous swap skips this transition (only one runs at a time);
+    // its `ready`/`finished` reject with a benign "Skipped ViewTransition", but
+    // the update callback still ran, so the DOM is already swapped. Swallow those
+    // and await `updateCallbackDone` instead, so a genuine error thrown by the
+    // swap callback still propagates (and surfaces as h:error).
+    vt.ready?.catch(() => {})
+    vt.finished?.catch(() => {})
+    await vt.updateCallbackDone
+  } else doIt()
 
   emit(el, 'swapped', { cfg, response: res, html })
   if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg, response: res, html })

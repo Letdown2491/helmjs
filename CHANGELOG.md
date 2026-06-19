@@ -7,6 +7,17 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.8.2] - 2026-06-19
+
+### Fixed
+- **Skipped View Transitions no longer throw.** Only one View Transition runs at a
+  time, so near-simultaneous swaps (multiple `intersect once` loaders, OOB, polling)
+  skip each other's transitions, rejecting `ready`/`finished` with a benign "Skipped
+  ViewTransition" `DOMException`. That awaited rejection surfaced as an uncaught
+  promise rejection, filling the console. HelmJS now awaits `updateCallbackDone`
+  (the swap still applies) and swallows the skip rejection, while a genuine error in
+  the swap callback still propagates as `h:error`.
+
 ## [0.8.1] - 2026-06-19
 
 ### Added
