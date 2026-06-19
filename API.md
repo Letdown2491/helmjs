@@ -45,13 +45,17 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 | Attribute | Allowed Elements | URL Source |
 |-----------|------------------|------------|
-| `h-get` | `<a>` or `<form>` | `href` or `action` attribute |
+| `h-get` | any | `href` (`<a>`), `action` (`<form>`), else the `h-get` value |
 | `h-post` | `<form>` only | `action` attribute |
 | `h-put` | `<form>` only | `action` attribute |
 | `h-patch` | `<form>` only | `action` attribute |
 | `h-delete` | `<form>` only | `action` attribute |
 
-GET requests work on both links and forms. Forms with `h-get` serialize their data as query parameters, enabling search and filtering. Mutation methods (POST, PUT, PATCH, DELETE) are restricted to forms.
+GET is safe/idempotent, so `h-get` is allowed on any element: `<a>`/`<form>` take the
+URL from `href`/`action` (and degrade with JS off), while any other element takes the
+URL from `h-get`'s value (JS-only — for live regions and polling, where there is no
+native control to degrade to). Mutation methods (POST, PUT, PATCH, DELETE) stay
+restricted to `<form>` with a real `action`, for both safety and degradation.
 
 ---
 
@@ -111,7 +115,7 @@ intent (pick a fragment), different layer — the server dictating it from the r
 
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
-| `h-get` | `<a>`, `<form>` | AJAX GET request. URL from `href` (links) or `action` (forms). Forms serialize data as query params. |
+| `h-get` | any | AJAX GET request. URL from `href` (`<a>`), `action` (`<form>`), or `h-get`'s own value (any other element). Forms serialize data as query params. The `<a>`/`<form>` forms degrade with JS off; the value form (e.g. on a `<div>`/`<button>`) is JS-only. |
 | `h-post` | `<form>` | AJAX POST request. URL from `action` attribute. |
 | `h-put` | `<form>` | AJAX PUT request. URL from `action` attribute. |
 | `h-patch` | `<form>` | AJAX PATCH request. URL from `action` attribute. |
@@ -151,9 +155,11 @@ intent (pick a fragment), different layer — the server dictating it from the r
 
 ### Real-time Updates
 
+Polling is a trigger, not a separate attribute — use `h-trigger="every 5s"` (see
+[Polling](#polling)).
+
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
-| `h-poll` | any | URL to poll, with optional interval: `/api/data 30s`. Default interval: 30s. |
 | `h-sse` | any | URL of Server-Sent Events endpoint to connect to. |
 | `h-sse-on` | `<template>` | Route SSE events by name to specific targets. |
 
@@ -280,6 +286,17 @@ Intersection-specific modifiers:
 | `threshold:0.5` | Visibility ratio to trigger (0-1). Default: 0. |
 | `rootMargin:100px` | Margin around viewport. Default: 0px. |
 
+### Interval (`every`)
+
+The special `every` trigger re-runs the request on an interval — this is how polling
+works. See [Polling](#polling).
+
+```html
+<a href="/api/status" h-get h-trigger="every 5s" h-target="#status">Status</a>
+```
+
+`every <n>[ms|s|m]`; default `30s`. Stops when the element leaves the DOM.
+
 ---
 
 ## Out-of-Band Updates
@@ -374,39 +391,49 @@ h-prefetch="[trigger] [ttl]"
 
 ## Polling
 
-Automatically refresh content at regular intervals.
+Polling is just a trigger: `h-trigger="every <interval>"`. It re-runs the element's
+normal request on an interval, so polling gets the **full request pipeline** —
+`h-target`/`h-swap`/`h-select`, `h-sync`, OOB, server `H-*` headers, error placement,
+indicators, and the standard events — instead of a separate, weaker code path.
 
 ### Basic Usage
 
 ```html
-<div h-poll="/api/status 10s">Loading...</div>
+<!-- refresh a region in place: default target is self, default swap is inner -->
+<a href="/api/status" h-get h-trigger="every 5s">Loading…</a>
+
+<!-- poll into a different target -->
+<a href="/api/status" h-get h-trigger="every 5s" h-target="#status">Status</a>
 ```
 
-### Syntax
+### Interval
 
-```
-h-poll="URL [interval]"
-```
-
-- **URL**: Required. The endpoint to poll.
-- **interval**: Optional. Default: `30s`. Supports: `ms`, `s`, `m`.
-
-### Examples
+`every <n>[ms|s|m]` — default `30s` if omitted (`every`).
 
 ```html
-<div h-poll="/api/notifications">...</div>           <!-- 30s default -->
-<div h-poll="/api/status 5s">...</div>               <!-- 5 seconds -->
-<div h-poll="/api/updates 500ms">...</div>           <!-- 500 milliseconds -->
-<div h-poll="/api/daily 1m">...</div>                <!-- 1 minute -->
+h-trigger="every 500ms"
+h-trigger="every 5s"
+h-trigger="every 1m"
 ```
+
+### Polling a non-link region (`<div>`)
+
+When link/form semantics are wrong (e.g. a live dashboard widget), put the URL in
+`h-get`'s value on any element:
+
+```html
+<div h-get="/api/metrics" h-trigger="every 10s">…</div>
+```
+
+`h-get` takes its URL from `href` on `<a>`, `action` on `<form>`, or its own value on
+any other element. The first two degrade to native navigation/submission with JS off;
+the `<div>` form is JS-only (polling has no no-JS equivalent anyway).
 
 ### Behavior
 
-- Polling starts immediately when element is processed
-- Stops automatically when element is removed from DOM
-- Uses `h-target` and `h-swap` attributes (defaults: self, inner)
-- Supports OOB updates in poll responses
-- Emits `h:poll-start` and `h:poll` events
+- First request fires after one interval (not immediately).
+- Stops automatically when the element is removed from the DOM.
+- Combine with `h-sync="abort"` to drop overlapping requests when responses are slow.
 
 ---
 
@@ -461,7 +488,7 @@ HelmJS dispatches custom events throughout the request lifecycle. All events bub
 | Event | Cancelable | Detail | Description |
 |-------|------------|--------|-------------|
 | `h:init` | Yes | `{}` | Before element initialization. Cancel to skip. |
-| `h:inited` | No | `{}` | After element initialization complete. |
+| `h:ready` | No | `{}` | After element initialization complete. |
 | `h:before` | Yes | `{ cfg }` | Before request sent. Modify `cfg` to change request. |
 | `h:before-swap` | Yes | `{ cfg, response, html }` | After response, before swap. Cancel to skip the swap. |
 | `h:swapped` | No | `{ cfg, response, html }` | After DOM update complete. |

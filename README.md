@@ -130,7 +130,7 @@ Every requesting element must resolve to a **working native control** when JS is
 | Cross-element events | `h-trigger="input from:#search-box"` |
 | Request coordination | `h-sync="abort"` (cancel stale), `h-sync="drop"` (ignore new) |
 | Infinite scroll | `h-trigger="intersect once"` |
-| Polling | `h-poll="/api/status 5s"` |
+| Polling | `h-trigger="every 5s"` |
 | Server-Sent Events | `h-sse="/events"` |
 | Multi-element updates | `h-oob="true"` |
 | Server-driven control | `H-Retarget`, `H-Reswap`, `H-Push-Url`, `H-Redirect`, … (response headers) |
@@ -174,7 +174,7 @@ document.addEventListener('h:before', (e) => {
 })
 ```
 
-Events: `h:init`, `h:before`, `h:before-swap`, `h:swapped`, `h:error`, `h:poll`, `h:sse-message`
+Events: `h:init`, `h:ready`, `h:before`, `h:before-swap`, `h:swapped`, `h:error`, `h:sse-message`
 
 ## Intentional deviations
 
@@ -186,10 +186,12 @@ sensible HATEOAS equivalent:
   **`h-confirm`**, **`h-indicator`**, **`h-disable`**, **`h-scroll`**, **`h-focus`** —
   these describe browser behavior *around* a transition, not the transition itself.
   Encoding them in the response would add weight without making the system more RESTful.
-- **`h-poll`** / **`h-sse`** are real-time transports with no native HTML equivalent;
-  their URLs necessarily live in the client HTML and they cannot degrade with JS off.
-  They stay hypermedia-faithful in that their *responses* are HTML and may carry OOB
-  controls.
+- **Polling (`h-trigger="every Ns"`)** and **`h-sse`** are real-time transports with
+  no native HTML equivalent; they can't degrade with JS off. They stay
+  hypermedia-faithful in that their *responses* are HTML and flow through the normal
+  pipeline (target/swap/select, server `H-*` headers, OOB, events). Polling a
+  non-degradable region (e.g. a `<div h-get="…">`) is the one place a URL lives in an
+  attribute rather than `href`/`action`.
 
 ### Compliance summary
 
@@ -205,8 +207,9 @@ design choices:
 - **Graceful degradation** — compliant for `h-get`, GET/POST forms, and `h-boost`.
   The only non-degrading features are ones with no JS-off equivalent in HTML:
   `h-put`/`h-patch`/`h-delete` (forms submit only GET/POST natively — use a server
-  `_method` override for a native fallback), non-`click`/`submit` `h-trigger` events,
-  cross-form `h-include`, and the real-time transports `h-poll`/`h-sse`.
+  `_method` override for a native fallback), non-`click`/`submit` `h-trigger` events
+  (including `every`), cross-form `h-include`, `h-sse`, and `h-get` on non-anchor/form
+  elements (which carries its URL in an attribute and has no native control).
 
 ## Size
 
