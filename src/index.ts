@@ -20,7 +20,7 @@ interface HState {
   title: string
 }
 
-interface ElState { init?: true; abort?: AbortController; sse?: EventSource; poll?: number }
+interface ElState { init?: true; abort?: AbortController; sse?: EventSource }
 
 interface PrefetchEntry { promise: Promise<{ response: Response; text: string }>; expires: number }
 const prefetchCache = new Map<string, PrefetchEntry>()
@@ -213,7 +213,9 @@ const findMethod = (el: Element): { method: HttpMethod; action: string } | null 
   const tag = el.tagName
   const boost = boosted(el)
   if (has(el, 'h-get') || (boost && tag === 'A')) {
-    const url = el.getAttribute(tag === 'A' ? 'href' : tag === 'FORM' ? 'action' : '')
+    // URL source: href (links) / action (forms) — both degrade with JS off — or
+    // h-get's own value on any other element (JS-only; e.g. polling live regions).
+    const url = el.getAttribute(tag === 'A' ? 'href' : tag === 'FORM' ? 'action' : 'h-get')
     if (!url) return null
     // Don't boost links the browser should handle natively (new tab, download,
     // in-page anchors, cross-origin) — they must stay plain navigations.
@@ -434,12 +436,17 @@ const init = (el: Element): void => {
         }
       }, { threshold, rootMargin })
       obs.observe(el)
+    } else if (event === 'every') {
+      // Polling: re-run the request on an interval, stopping when detached.
+      let ms = 0
+      for (const k of mods.keys()) { const t = parseTTL(k); if (t) { ms = t; break } }
+      const id = setInterval(() => document.contains(el) ? handler(new CustomEvent('every')) : clearInterval(id), ms || 30000)
     } else if (listenTarget) {
       listenTarget.addEventListener(event, handler, { once: mods.has('once'), capture: mods.has('capture'), passive: mods.has('passive') })
     }
   }
   state(el).init = true
-  emit(el, 'inited', {})
+  emit(el, 'ready', {})
 }
 
 const initSSE = (el: Element): void => {
@@ -472,38 +479,6 @@ const initSSE = (el: Element): void => {
     }
   }
   es.onerror = () => emit(el, 'sse-error', { url })
-}
-
-const initPoll = (el: Element): void => {
-  if (state(el).poll || ignore(el)) return
-  const val = attr(el, 'h-poll')
-  if (!val) return
-
-  const parts = val.trim().split(/\s+/)
-  const url = parts[0]
-  const interval = parseTTL(parts[1]) || 30000
-  const swap = attr(el, 'h-swap', 'inner') as SwapStrategy
-  const tgtSel = attr(el, 'h-target')
-  const selSel = attr(el, 'h-select')
-
-  const poll = async () => {
-    if (!document.contains(el)) { clearInterval(id); return }
-    const target = tgtSel ? $(tgtSel) ?? el : el
-    try {
-      const res = await fetch(url, { headers: hdrs(tgtSel) })
-      if (res.ok) {
-        let html = await res.text()
-        if (selSel) html = selectFragment(html, selSel)
-        html = processOOB(html)
-        doSwap(target, html, swap)
-        emit(el, 'poll', { url, html })
-      }
-    } catch {}
-  }
-
-  const id = setInterval(poll, interval)
-  state(el).poll = id
-  emit(el, 'poll-start', { url, interval })
 }
 
 const initPrefetch = (el: Element): void => {
@@ -540,14 +515,13 @@ const initPrefetch = (el: Element): void => {
 const initEl = (el: Element): void => {
   if (findMethod(el)) init(el)
   if (has(el, 'h-sse')) initSSE(el)
-  if (has(el, 'h-poll')) initPoll(el)
   if (has(el, 'h-prefetch')) initPrefetch(el)
 }
 
 const process = (node: Node): void => {
   if (!(node instanceof Element) || ignore(node)) return
   initEl(node)
-  node.querySelectorAll('a[h-get][href], form[h-get][action], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-poll], [h-prefetch]').forEach(initEl)
+  node.querySelectorAll('[h-get], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-prefetch]').forEach(initEl)
   // Boosted plain controls: upgrade native <a href>/<form action> with no h-* attrs.
   if (node.closest('[h-boost]')) node.querySelectorAll('a[href], form[action]').forEach(initEl)
   node.querySelectorAll('[h-boost] a[href], [h-boost] form[action]').forEach(initEl)
