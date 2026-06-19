@@ -11,7 +11,7 @@ const { window } = dom
 // Captured navigation side effects (assert these instead of really navigating).
 export const captured = { redirect: null, reloaded: false, pushed: [], replaced: [], fetches: [] }
 
-// fetch router — each test assigns `routes(url, opts) => { status?, headers?, body? }`.
+// fetch router: each test assigns `routes(url, opts) => { status?, headers?, body? }`.
 export let router = () => ({ body: '' })
 export const setRouter = (fn) => { router = fn }
 

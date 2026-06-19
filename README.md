@@ -1,6 +1,6 @@
 # HelmJS
 
-**The smallest hypermedia library where the server — not the client — drives every
+**The smallest hypermedia library where the server, not the client, drives every
 state transition, and it all degrades to plain HTML.**
 
 ~4.7KB gzipped · zero dependencies · TypeScript.
@@ -47,7 +47,7 @@ The server sends HTML, HelmJS swaps it in. That's it.
 ## HATEOAS posture
 
 HelmJS treats the **server as the engine of application state**. The client never
-invents URLs and holds no routing or application state of its own — it transitions
+invents URLs and holds no routing or application state of its own; it transitions
 state only through hypermedia controls (links/forms) the server sends back as HTML.
 In short:
 
@@ -71,7 +71,7 @@ semantics under the `H-` prefix.
 | `H-Retarget: <selector>` | Swap into a different element than the client's `h-target`. Falls back to the original target if the selector matches nothing. |
 | `H-Reswap: <strategy>` | Override the swap strategy (`inner`, `outer`, `append`, …). Validated; an unknown value falls back to the element's `h-swap`. |
 | `H-Reselect: <selector>` | Choose which fragment of the response to extract. If it matches nothing, the full response is swapped. |
-| `H-Push-Url: <url \| false>` | Push (or suppress) a history URL — the server picks the canonical URL. |
+| `H-Push-Url: <url \| false>` | Push (or suppress) a history URL; the server picks the canonical URL. |
 | `H-Replace-Url: <url \| false>` | Replace the current history entry. |
 | `H-Trigger: <name \| JSON>` | Fire client event(s) **on receive, before the swap** (htmx parity). `"a,b"` or `{"evt":{...detail}}`. |
 | `H-Trigger-After-Swap: <name \| JSON>` | Fire client event(s) **after the swap is applied** (handlers see the new DOM). Skipped on redirect/refresh. |
@@ -83,7 +83,7 @@ semantics under the `H-` prefix.
 errors. With no `H-Retarget`, an error response is swapped into a conventional
 `[h-error]` region if the page has one; either way `h:error` fires.
 
-**Security — response-driven navigation is same-origin by default.** `H-Location`
+**Security: response-driven navigation is same-origin by default.** `H-Location`
 always requires a same-origin URL (a cross-origin value is ignored and emits
 `h:error`). `H-Redirect` is same-origin by default; cross-origin redirects are an
 open-redirect risk, so they require an explicit page-level opt-in:
@@ -98,7 +98,7 @@ origin check, so relative URLs always work.
 
 ```html
 <body h-boost>
-  <!-- plain hypermedia — no helmjs attributes needed -->
+  <!-- plain hypermedia, no helmjs attributes needed -->
   <nav><a href="/about">About</a> <a href="/contact">Contact</a></nav>
   <form action="/search" method="get"><input name="q"><button>Search</button></form>
 </body>
@@ -108,15 +108,15 @@ Inside an `h-boost` container, plain `<a href>` and `<form action>` are upgraded
 fetch + swap the `<body>` contents and push the URL. Links that should stay native
 (`target`, `download`, `#fragment`, cross-origin) are left alone, and any element can
 opt out with `h-boost="false"`. With JavaScript disabled, every one of these is just
-a normal link/form and the browser does a full page load — identical destination.
+a normal link/form, and the browser does a full page load to the same destination.
 
 ### Graceful degradation contract
 
 Every requesting element must resolve to a **working native control** when JS is off:
 
-- `h-get` on `<a>` requires a real `href` — that's the no-JS navigation.
+- `h-get` on `<a>` requires a real `href`; that's the no-JS navigation.
 - `h-post`/`put`/`patch`/`delete` on `<form>` require a real `action` **and** an
-  explicit `method` (`get`/`post`) — that's the no-JS submission. (HTML forms only
+  explicit `method` (`get`/`post`); that's the no-JS submission. (HTML forms only
   support GET/POST natively; PUT/PATCH/DELETE still need a server-side fallback.)
 - HelmJS never strips `href`/`action`/`method`, and a control without a usable
   URL is never hijacked (it stays a plain element).
@@ -186,7 +186,7 @@ client-side interaction/UX rather than application-state transitions, and have n
 sensible HATEOAS equivalent:
 
 - **`h-trigger`** (when to fire), **`h-sync`** (abort/drop coordination),
-  **`h-confirm`**, **`h-indicator`**, **`h-disable`**, **`h-scroll`**, **`h-focus`** —
+  **`h-confirm`**, **`h-indicator`**, **`h-disable`**, **`h-scroll`**, **`h-focus`**:
   these describe browser behavior *around* a transition, not the transition itself.
   Encoding them in the response would add weight without making the system more RESTful.
 - **Polling (`h-trigger="every Ns"`)** and **`h-sse`** are real-time transports with
@@ -203,13 +203,13 @@ client library controls, and the remaining gaps are inherent HTML limits rather 
 design choices:
 
 - **Hypermedia as the engine of state, statelessness, self-descriptive messages,
-  uniform interface** — compliant. URLs come only from server-rendered `href`/`action`;
+  uniform interface** are compliant. URLs come only from server-rendered `href`/`action`;
   the server can override every transition from the response (`H-*` headers); no
   client-side routing or application state; back/forward re-fetches from the server;
   responses are HTML, and controls in swapped-in fragments auto-activate.
-- **Graceful degradation** — compliant for `h-get`, GET/POST forms, and `h-boost`.
+- **Graceful degradation**: compliant for `h-get`, GET/POST forms, and `h-boost`.
   The only non-degrading features are ones with no JS-off equivalent in HTML:
-  `h-put`/`h-patch`/`h-delete` (forms submit only GET/POST natively — use a server
+  `h-put`/`h-patch`/`h-delete` (forms submit only GET/POST natively, so use a server
   `_method` override for a native fallback), non-`click`/`submit` `h-trigger` events
   (including `every`), cross-form `h-include`, `h-sse`, and `h-get` on non-anchor/form
   elements (which carries its URL in an attribute and has no native control).
@@ -217,8 +217,8 @@ design choices:
 ## Size
 
 ~4.7KB gzipped, zero runtime dependencies. The bulk buys the full server-driven
-control surface — the response headers above, which are what make the **server** the
-engine of state transitions rather than the client — plus `h-boost`, morph, prefetch,
+control surface: the response headers above, which are what make the **server** the
+engine of state transitions rather than the client, plus `h-boost`, morph, prefetch,
 and the same-origin security hardening on response-driven navigation. The header
 surface is a compact dispatch (a handful of `res.headers.get` reads guarded by early
 returns; one shared `sameOrigin` helper and one swap-strategy regex), with no
@@ -226,7 +226,7 @@ per-feature framework. Absent any `H-*` header, behavior is unchanged.
 
 The default swap is `inner` (predictable, and the shared default a future morph-less
 "lean" build would also use); `morph` is opt-in via `h-swap="morph"`. `morph` is the
-largest single chunk of the bundle, so a planned lean build will drop it — and
+largest single chunk of the bundle, so a planned lean build will drop it, and
 because the default is already `inner`, swapping builds won't change default behavior.
 
 ## Documentation

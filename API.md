@@ -53,7 +53,7 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 GET is safe/idempotent, so `h-get` is allowed on any element: `<a>`/`<form>` take the
 URL from `href`/`action` (and degrade with JS off), while any other element takes the
-URL from `h-get`'s value (JS-only — for live regions and polling, where there is no
+URL from `h-get`'s value (JS-only, for live regions and polling, where there is no
 native control to degrade to). Mutation methods (POST, PUT, PATCH, DELETE) stay
 restricted to `<form>` with a real `action`, for both safety and degradation.
 
@@ -86,7 +86,7 @@ test/
 ```
 
 Run `npm test` for the automated suite (builds the bundle, then runs `node --test`).
-`jsdom` is a **dev** dependency only — the shipped library has zero runtime dependencies.
+`jsdom` is a **dev** dependency only; the shipped library has zero runtime dependencies.
 
 - **Build**: esbuild bundles TypeScript to a single minified ESM file
 - **Types**: tsc generates declaration files only
@@ -100,16 +100,16 @@ Run `npm test` for the automated suite (builds the bundle, then runs `node --tes
 
 HelmJS uses casing to mark which layer a name belongs to:
 
-- **`h-*` (lowercase)** — HTML attributes you author in markup (`h-get`, `h-target`,
+- **`h-*` (lowercase)**: HTML attributes you author in markup (`h-get`, `h-target`,
   `h-swap`). HTML attribute names are case-insensitive and lowercase by convention.
-- **`H-*` (Title-Case)** — HTTP headers, both request (`H-Request`, `H-Target`) and
+- **`H-*` (Title-Case)**: HTTP headers, both request (`H-Request`, `H-Target`) and
   response (`H-Retarget`, `H-Reselect`, …). HTTP header names are case-insensitive on
   the wire, so `h-reselect` also works, but Title-Case is the HTTP convention and
   makes "this is a header, not an attribute" obvious at a glance.
-- **`h:*`** — DOM events (`h:before-request`, `h:swapped`).
+- **`h:*`**: DOM events (`h:before-request`, `h:swapped`).
 
 So `H-Reselect` is the response-header counterpart of the `h-select` attribute: same
-intent (pick a fragment), different layer — the server dictating it from the response.
+intent (pick a fragment), different layer: the server dictating it from the response.
 
 ### Request Attributes
 
@@ -126,7 +126,7 @@ intent (pick a fragment), different layer — the server dictating it from the r
 
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
-| `h-target` | any | CSS selector for response destination. Default: the triggering element. **Fallback only** — prefer server-declared placement (`h-oob` or the `H-Retarget` response header), which keeps responses self-descriptive. |
+| `h-target` | any | CSS selector for response destination. Default: the triggering element. **Fallback only**: prefer server-declared placement (`h-oob` or the `H-Retarget` response header), which keeps responses self-descriptive. |
 | `h-swap` | any | How to insert the response. Default: `inner`. Use `h-swap="morph"` to opt into DOM-diffing. Overridable per-response with `H-Reswap`. |
 | `h-select` | any | CSS selector to extract a fragment from the response before swapping. Overridable per-response with `H-Reselect`. |
 | `h-scroll` | any | Scroll behavior after swap: `top`, `bottom`, `target`, or a CSS selector. |
@@ -155,7 +155,7 @@ intent (pick a fragment), different layer — the server dictating it from the r
 
 ### Real-time Updates
 
-Polling is a trigger, not a separate attribute — use `h-trigger="every 5s"` (see
+Polling is a trigger, not a separate attribute; use `h-trigger="every 5s"` (see
 [Polling](#polling)).
 
 | Attribute | Elements | Description |
@@ -288,7 +288,7 @@ Intersection-specific modifiers:
 
 ### Interval (`every`)
 
-The special `every` trigger re-runs the request on an interval — this is how polling
+The special `every` trigger re-runs the request on an interval; this is how polling
 works. See [Polling](#polling).
 
 ```html
@@ -343,7 +343,7 @@ Only `true`/`outer` use the OOB element itself; every other strategy uses the OO
 element's *contents*, so the wrapper tag isn't duplicated into the target.
 
 > OOB is for **DOM** updates. Input-value manipulation strategies (`value`,
-> `replace`, `merge`) were removed in the slim-down — handle that kind of niche
+> `replace`, `merge`) were removed in the slim-down; handle that kind of niche
 > client state in an `h:swapped`/`H-Trigger` handler instead.
 
 ---
@@ -392,9 +392,9 @@ h-prefetch="[trigger] [ttl]"
 ## Polling
 
 Polling is just a trigger: `h-trigger="every <interval>"`. It re-runs the element's
-normal request on an interval, so polling gets the **full request pipeline** —
-`h-target`/`h-swap`/`h-select`, `h-sync`, OOB, server `H-*` headers, error placement,
-indicators, and the standard events — instead of a separate, weaker code path.
+normal request on an interval, so polling gets the **full request pipeline**
+(`h-target`/`h-swap`/`h-select`, `h-sync`, OOB, server `H-*` headers, error placement,
+indicators, and the standard events) instead of a separate, weaker code path.
 
 ### Basic Usage
 
@@ -408,7 +408,7 @@ indicators, and the standard events — instead of a separate, weaker code path.
 
 ### Interval
 
-`every <n>[ms|s|m]` — default `30s` if omitted (`every`).
+`every <n>[ms|s|m]`; default `30s` if omitted (`every`).
 
 ```html
 h-trigger="every 500ms"
@@ -609,7 +609,7 @@ pre-encode layout/routing knowledge. These mirror htmx `HX-*` semantics under th
 | `H-Replace-Url` | URL or `false` | Replace the current history entry instead of pushing. |
 | `H-Trigger` | name(s) or JSON | Fire client event(s) **on receive, before the swap** (htmx `HX-Trigger` parity). `"a,b"` fires two named events; `{"evt":{...}}` fires `evt` with `event.detail`. Names are **un-prefixed** (no `h:`), so you can trigger app events. |
 | `H-Trigger-After-Swap` | name(s) or JSON | Same syntax as `H-Trigger`, but fired **after the swap is applied**, so handlers see the new DOM. Skipped when the response short-circuits via redirect/refresh/location. |
-| `H-Redirect` | URL | Full client-side redirect via `location.href`. **Same-origin only** by default — see [security](#security-same-origin-navigation). |
+| `H-Redirect` | URL | Full client-side redirect via `location.href`. **Same-origin only** by default; see [security](#security-same-origin-navigation). |
 | `H-Location` | URL | Client-side (AJAX) navigation: fetch the URL, swap `<body>`, push history. No full reload. **Same-origin only.** |
 | `H-Refresh` | `true` | Reload the current page. |
 
@@ -626,7 +626,7 @@ For a 4xx/5xx response the order is:
    (with `H-Reswap` if provided, else `inner`).
 2. Otherwise, if the page contains an element with the `[h-error]` attribute, the
    error is swapped into it (`inner`). This is a zero-config convention for a shared
-   error region — no per-element wiring.
+   error region; no per-element wiring.
 3. Either way, the `h:error` event fires (`detail` = `{ cfg, response, html }`), so
    you can handle errors in script regardless of placement.
 
@@ -645,7 +645,7 @@ malicious upstream response cannot turn HelmJS into an open redirect:
 - **`H-Location`** must be same-origin. A cross-origin URL is ignored and an
   `h:error` event is emitted (`detail.error` explains why); nothing is fetched.
 - **`H-Redirect`** is same-origin by default. Cross-origin redirects require an
-  explicit, page-level opt-in — add `h-allow-cross-origin` to the `<html>` element:
+  explicit, page-level opt-in: add `h-allow-cross-origin` to the `<html>` element:
 
   ```html
   <html h-allow-cross-origin> <!-- enables cross-origin H-Redirect for this page -->
@@ -668,7 +668,7 @@ event. On a redirect/refresh/location short-circuit there is no swap, so
 ### Example: server places the response wherever it wants
 
 ```python
-# Flask-style handler — the client used h-target="#form", but the server decides
+# Flask-style handler: the client used h-target="#form", but the server decides
 # the validation error belongs in #form-errors and should not change the URL.
 resp = make_response(render_template("errors.html"), 422)
 resp.headers["H-Retarget"] = "#form-errors"
@@ -678,7 +678,7 @@ return resp
 
 ```python
 # After a successful create, send the user to the canonical resource URL and
-# notify the rest of the page — all without any client-side routing.
+# notify the rest of the page, all without any client-side routing.
 resp = make_response(render_template("item.html"))
 resp.headers["H-Push-Url"] = f"/items/{item.id}"
 resp.headers["H-Trigger"]  = '{"item:created":{"id": %d}}' % item.id
@@ -708,7 +708,7 @@ Within an `h-boost` container:
 - Links the browser should handle natively are **not** boosted: `target` (e.g.
   `_blank`), `download`, in-page `#fragment` links, and cross-origin URLs.
 - Any subtree can opt out with `h-boost="false"`.
-- Explicit `h-*` attributes still win — you can boost a region but override
+- Explicit `h-*` attributes still win: you can boost a region but override
   `h-target`/`h-swap`/`h-push-url` on individual elements.
 
 **Degradation:** with JavaScript disabled, every boosted element is just a normal
@@ -729,7 +729,7 @@ Every requesting element must resolve to a working **native** control with JS of
 | boosted `<a>`/`<form>` | already plain native controls |
 
 HelmJS never strips `href`/`action`/`method`. A control whose URL is missing is
-**not** hijacked — it remains a plain element. These guarantees are covered by the
+**not** hijacked; it remains a plain element. These guarantees are covered by the
 automated tests in `test/helm.test.mjs` (the "degradation" group).
 
 ---

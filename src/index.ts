@@ -213,12 +213,12 @@ const findMethod = (el: Element): { method: HttpMethod; action: string } | null 
   const tag = el.tagName
   const boost = boosted(el)
   if (has(el, 'h-get') || (boost && tag === 'A')) {
-    // URL source: href (links) / action (forms) — both degrade with JS off — or
-    // h-get's own value on any other element (JS-only; e.g. polling live regions).
+    // URL source: href (links) / action (forms), both of which degrade with JS off,
+    // or h-get's own value on any other element (JS-only; e.g. polling live regions).
     const url = el.getAttribute(tag === 'A' ? 'href' : tag === 'FORM' ? 'action' : 'h-get')
     if (!url) return null
     // Don't boost links the browser should handle natively (new tab, download,
-    // in-page anchors, cross-origin) — they must stay plain navigations.
+    // in-page anchors, cross-origin); they must stay plain navigations.
     if (boost && tag === 'A' && !has(el, 'h-get') &&
       (el.hasAttribute('target') || el.hasAttribute('download') ||
         url.startsWith('#') || new URL(url, location.href).origin !== location.origin))
