@@ -224,10 +224,10 @@ surface is a compact dispatch (a handful of `res.headers.get` reads guarded by e
 returns; one shared `sameOrigin` helper and one swap-strategy regex), with no
 per-feature framework. Absent any `H-*` header, behavior is unchanged.
 
-The default swap is `inner` (predictable, and the shared default a future morph-less
-"lean" build would also use); `morph` is opt-in via `h-swap="morph"`. `morph` is the
-largest single chunk of the bundle, so a planned lean build will drop it, and
-because the default is already `inner`, swapping builds won't change default behavior.
+The default swap is `inner` (predictable and small); `morph` is opt-in via
+`h-swap="morph"`. We ship a single batteries-included build: at under 5KB the savings
+from carving optional features out into a second build weren't worth the added
+complexity for users or maintainers.
 
 ## Documentation
 

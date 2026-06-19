@@ -199,9 +199,9 @@ position. The `morph` strategy performs intelligent DOM diffing:
 5. Updates attributes that changed
 6. Recursively morphs children
 
-> **Note:** `morph` is the largest single piece of the bundle. A future "lean" build
-> will omit it; because the default swap is already `inner`, switching builds will not
-> change default behavior.
+> **Note:** `morph` is the largest single piece of the bundle (~470 B gzipped). The
+> default swap is `inner`, so you only pay for `morph`'s behavior when you opt in with
+> `h-swap="morph"`; an unknown swap value also falls back to `inner`.
 
 ---
 
