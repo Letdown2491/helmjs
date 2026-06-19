@@ -529,6 +529,15 @@ const init = (el: Element): void => {
       let ms = 0
       for (const k of mods.keys()) { const t = parseTTL(k); if (t) { ms = t; break } }
       const id = setInterval(() => document.contains(el) ? handler(new CustomEvent('every')) : clearInterval(id), ms || 30000)
+    } else if (event === 'load') {
+      // Fire once as soon as the element is wired into the DOM (htmx parity):
+      // the lazy-hydration trigger. The native `load` event never fires on an
+      // arbitrary element, so binding it would be a silent no-op. A microtask
+      // lets the surrounding DOM settle first; delay:Ns staggers it. `once` is
+      // implicit. Skip if the element was detached before a delayed fire.
+      const ms = parseTTL(mods.get('delay'))
+      const fire = () => { if (document.contains(el)) handler(new CustomEvent('load')) }
+      ms ? setTimeout(fire, ms) : queueMicrotask(fire)
     } else if (listenTarget) {
       listenTarget.addEventListener(event, handler, { once: mods.has('once'), capture: mods.has('capture'), passive: mods.has('passive') })
     }

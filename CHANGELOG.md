@@ -7,6 +7,15 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.8.1] - 2026-06-19
+
+### Added
+- **`h-trigger="load"` fires once on init** (lazy hydration), instead of silently
+  doing nothing on elements that never emit a native DOM `load` event. Fires as soon
+  as the element is wired into the DOM (including swapped-in markup), regardless of
+  visibility; an optional `delay:<n>` staggers it. On an `<img>` it fires on init,
+  not on the image's network load (htmx parity).
+
 ## [0.8.0] - 2026-06-19
 
 ### Added

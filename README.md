@@ -3,7 +3,7 @@
 **The smallest hypermedia library where the server, not the client, drives every
 state transition, and it all degrades to plain HTML.**
 
-~5.3KB gzipped · zero dependencies · TypeScript.
+~5.4KB gzipped · zero dependencies · TypeScript.
 
 ```html
 <script src="https://unpkg.com/helmjs"></script>
@@ -133,6 +133,7 @@ Every requesting element must resolve to a **working native control** when JS is
 | Cross-element events | `h-trigger="input from:#search-box"` |
 | Request coordination | `h-sync="abort"` (cancel stale), `h-sync="drop"` (ignore new) |
 | Infinite scroll | `h-trigger="intersect once"` |
+| Lazy hydration | `h-trigger="load"` (fetch a region as soon as it's in the DOM) |
 | Polling | `h-trigger="every 5s"` |
 | Server-Sent Events | `h-sse="/events"` |
 | Typeahead insert | `h-insert` + `h-insert-target` (e.g. @-mention / :emoji pickers) |
@@ -223,7 +224,7 @@ design choices:
 
 ## Size
 
-~5.3KB gzipped, zero runtime dependencies. The bulk buys the full server-driven
+~5.4KB gzipped, zero runtime dependencies. The bulk buys the full server-driven
 control surface: the response headers above, which are what make the **server** the
 engine of state transitions rather than the client, plus `h-boost`, morph, prefetch,
 and the same-origin security hardening on response-driven navigation. The header

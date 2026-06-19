@@ -38,7 +38,7 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 3. **Strict HATEOAS compliance** - The client never invents URLs. All actions come from server-provided hypermedia controls. The server can drive every transition from the response via [response headers](#response-headers-server-driven-control), and plain hypermedia can be enhanced transparently with [`h-boost`](#progressive-enhancement-h-boost). See the [compliance summary](README.md#compliance-summary) in the README.
 
-4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~5.3KB gzipped (see [Size](README.md#size) for what that buys).
+4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~5.4KB gzipped (see [Size](README.md#size) for what that buys).
 
 5. **Intuitive defaults** - Zero config for common cases. Opinionated defaults enforce good hypermedia practices.
 
@@ -271,6 +271,7 @@ h-trigger="intersect once threshold:0.5"
 | `capture` | Use capture phase for event listener. |
 | `passive` | Mark listener as passive. |
 | `from:selector` | Listen for events on another element instead of self. |
+| `delay:<n>[ms\|s\|m]` | Stagger a `load` trigger's fire (see [On load](#on-load-load)). |
 
 ### The `from:` Modifier
 
@@ -339,6 +340,30 @@ works. See [Polling](#polling).
 ```
 
 `every <n>[ms|s|m]`; default `30s`. Stops when the element leaves the DOM.
+
+### On load (`load`)
+
+The special `load` trigger fires **once, as soon as the element is wired into the
+DOM**, on-screen or not. It's the lazy-hydration trigger: fetch a region's content
+the moment it exists, including in markup swapped in by another request.
+
+```html
+<div id="panel" h-get="/panel" h-trigger="load" h-target="#panel" h-swap="inner">
+  loading…
+</div>
+```
+
+- Unlike `intersect` (viewport-gated), `load` fires immediately regardless of
+  visibility.
+- It fires exactly once, so `load` and `load once` are equivalent.
+- `delay:<n>[ms|s|m]` staggers the fire (e.g. `h-trigger="load delay:200ms"`); the
+  fire is skipped if the element is detached before the delay elapses.
+- On an `<img>`, `load` fires on init (htmx parity), **not** on the image's network
+  load.
+
+> The native DOM `load` event only fires on `window`/`<img>`/`<script>`/`<link>`/
+> `<iframe>`, so binding it to an arbitrary element would silently never fire;
+> `load` is special-cased to fire on init instead.
 
 ---
 

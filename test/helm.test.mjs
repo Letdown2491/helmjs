@@ -540,6 +540,43 @@ test('polling flows through the full pipeline (server H-Retarget honored)', asyn
 })
 
 // ---------------------------------------------------------------------------
+// h-trigger="load": fire once on init (lazy hydration), not a silent no-op.
+// ---------------------------------------------------------------------------
+
+test('h-trigger="load" fires once on init to hydrate a region', async () => {
+  setRouter(() => ({ body: '<p>hydrated</p>' }))
+  mount('<div id="me" h-get="/fragment" h-trigger="load" h-target="#me" h-swap="inner">loading…</div>')
+  await tick(10)
+  assert.equal(captured.fetches.length, 1)
+  assert.equal(captured.fetches[0].url, '/fragment')
+  assert.equal($('#me').innerHTML, '<p>hydrated</p>')
+})
+
+test('h-trigger="load" fires exactly once, not repeatedly', async () => {
+  setRouter(() => ({ body: '<p>x</p>' }))
+  mount('<div h-get="/f" h-trigger="load" h-target="#out" h-swap="inner"></div><div id="out"></div>')
+  await tick(50)
+  assert.equal(captured.fetches.length, 1)
+})
+
+test('h-trigger="load delay:Ns" staggers the fire', async () => {
+  setRouter(() => ({ body: '<p>x</p>' }))
+  mount('<div h-get="/f" h-trigger="load delay:40ms" h-target="#out" h-swap="inner"></div><div id="out"></div>')
+  await tick(10)
+  assert.equal(captured.fetches.length, 0, 'still within the delay')
+  await tick(60)
+  assert.equal(captured.fetches.length, 1, 'fired after the delay')
+})
+
+test('h-trigger="load" is suppressed if the element detaches before a delayed fire', async () => {
+  setRouter(() => ({ body: '<p>x</p>' }))
+  const root = mount('<div h-get="/f" h-trigger="load delay:40ms" h-target="#out" h-swap="inner"></div><div id="out"></div>')
+  root.remove()
+  await tick(70)
+  assert.equal(captured.fetches.length, 0)
+})
+
+// ---------------------------------------------------------------------------
 // h-boost: progressive enhancement of plain hypermedia.
 // ---------------------------------------------------------------------------
 
