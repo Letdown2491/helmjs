@@ -182,18 +182,18 @@
   <!-- Test 8: Auto-Disable for Mutations -->
   <section>
     <h2>8. Auto-Disable for Mutations</h2>
-    <p>POST auto-disables. GET (on anchors) needs explicit <code>h-disabled</code>.</p>
+    <p>POST auto-disables. GET (on anchors) needs explicit <code>h-disable</code>.</p>
     <form action="/api/slow" h-post h-target="#disabled-result-1">
       <button type="submit">POST (auto-disables)</button>
     </form>
     <a href="/api/slow" h-get h-target="#disabled-result-2" class="button">
       GET (no auto-disable)
     </a>
-    <a href="/api/slow" h-get h-target="#disabled-result-3" h-disabled class="button">
-      GET with h-disabled
+    <a href="/api/slow" h-get h-target="#disabled-result-3" h-disable class="button">
+      GET with h-disable
     </a>
-    <form action="/api/slow" h-post h-target="#disabled-result-4" h-no-disable>
-      <button type="submit">POST with h-no-disable</button>
+    <form action="/api/slow" h-post h-target="#disabled-result-4" h-disable="false">
+      <button type="submit">POST with h-disable="false"</button>
     </form>
     <div id="disabled-result-1"></div>
     <div id="disabled-result-2"></div>
@@ -738,7 +738,7 @@
     const indicator = document.getElementById('loading-indicator');
     const eventLink = document.getElementById('event-link');
 
-    ['h:before', 'h:after', 'h:swapped', 'h:error'].forEach(evt => {
+    ['h:before', 'h:before-swap', 'h:swapped', 'h:error'].forEach(evt => {
       eventLink.addEventListener(evt, (e) => {
         const time = new Date().toLocaleTimeString();
         log.innerHTML = `<div>[${time}] ${evt}</div>` + log.innerHTML;

@@ -309,6 +309,62 @@ test('default swap replaces innerHTML (inner), not append/morph', async () => {
 })
 
 // ---------------------------------------------------------------------------
+// h-disable: one attribute (absent / "" / "false" / selector).
+// ---------------------------------------------------------------------------
+
+test('mutation form auto-disables its submit button during the request', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-target="#out"><button id="b">Go</button></form><div id="out"></div>')
+  submit($('#f'))
+  assert.equal($('#b').hasAttribute('disabled'), true) // in-flight
+  await tick(10)
+  assert.equal($('#b').hasAttribute('disabled'), false) // re-enabled
+})
+
+test('h-disable="false" opts out of auto-disable', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-disable="false" h-target="#out"><button id="b">Go</button></form><div id="out"></div>')
+  submit($('#f'))
+  assert.equal($('#b').hasAttribute('disabled'), false)
+  await tick(10)
+})
+
+test('h-disable (present) disables a GET anchor during the request', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<a id="a" href="/x" h-get h-disable h-target="#out">Go</a><div id="out"></div>')
+  click($('#a'))
+  assert.equal($('#a').classList.contains('h-disabled'), true)
+  await tick(10)
+  assert.equal($('#a').classList.contains('h-disabled'), false)
+})
+
+test('h-disable="<selector>" also disables matched elements', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<a id="a" href="/x" h-get h-disable="#extra" h-target="#out">Go</a><button id="extra">x</button><div id="out"></div>')
+  click($('#a'))
+  assert.equal($('#extra').hasAttribute('disabled'), true)
+  await tick(10)
+  assert.equal($('#extra').hasAttribute('disabled'), false)
+})
+
+// ---------------------------------------------------------------------------
+// h:before-swap (renamed from h:after): fires after response, before swap.
+// ---------------------------------------------------------------------------
+
+test('h:before-swap is cancelable and fires before the swap', async () => {
+  setRouter(() => ({ body: '<p>new</p>' }))
+  let sawAtFire = null
+  const h = (e) => { sawAtFire = $('#out').innerHTML; e.preventDefault() }
+  window.document.addEventListener('h:before-swap', h)
+  mount('<a id="a" href="/x" h-get h-target="#out">Go</a><div id="out"><p>old</p></div>')
+  click($('#a'))
+  await tick(10)
+  window.document.removeEventListener('h:before-swap', h)
+  assert.equal(sawAtFire, '<p>old</p>') // fired before the swap (saw old DOM)
+  assert.equal($('#out').innerHTML, '<p>old</p>') // canceling prevented the swap
+})
+
+// ---------------------------------------------------------------------------
 // h-boost: progressive enhancement of plain hypermedia.
 // ---------------------------------------------------------------------------
 
