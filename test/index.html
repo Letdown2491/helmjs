@@ -233,15 +233,15 @@
     <div id="select-result"></div>
   </section>
 
-  <!-- Test 12: h-error-target -->
+  <!-- Test 12: error placement via the [h-error] convention region -->
   <section>
-    <h2>12. h-error-target</h2>
-    <p>Error responses go to a separate target</p>
-    <a href="/api/maybe-error" h-get h-target="#success-result" h-error-target="#error-result" class="button">
+    <h2>12. Error placement ([h-error] region)</h2>
+    <p>Success goes to the target; errors fall back to the conventional [h-error] region.</p>
+    <a href="/api/maybe-error" h-get h-target="#success-result" h-swap="inner" class="button">
       Load (50% chance of error)
     </a>
     <div id="success-result" style="color: green;"></div>
-    <div id="error-result" style="color: red;"></div>
+    <div h-error style="color: red;"></div>
   </section>
 
   <!-- Test 13: History (h-push-url) -->

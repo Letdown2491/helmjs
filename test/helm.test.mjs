@@ -258,6 +258,57 @@ test('H-Reselect with no match swaps the full response', async () => {
 })
 
 // ---------------------------------------------------------------------------
+// Error placement: H-Retarget, else the [h-error] convention region.
+// ---------------------------------------------------------------------------
+
+test('error with no H-Retarget swaps into the [h-error] region', async () => {
+  setRouter(() => ({ status: 500, body: '<p>boom</p>' }))
+  mount('<a id="a" href="/x" h-get h-target="#out">Go</a><div id="out"></div><div h-error></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal($('[h-error]').innerHTML, '<p>boom</p>')
+  assert.equal($('#out').innerHTML, '') // normal target untouched
+})
+
+test('error with no H-Retarget and no [h-error] region only fires h:error', async () => {
+  const errs = []
+  const h = (e) => errs.push(e.detail)
+  window.document.addEventListener('h:error', h)
+  setRouter(() => ({ status: 500, body: '<p>boom</p>' }))
+  mount('<a id="a" href="/x" h-get h-target="#out">Go</a><div id="out"></div>')
+  click($('#a'))
+  await tick(10)
+  window.document.removeEventListener('h:error', h)
+  assert.equal($('#out').innerHTML, '')
+  assert.equal(errs.length, 1)
+})
+
+// ---------------------------------------------------------------------------
+// Out-of-band: a returned element self-declares its own target by id.
+// ---------------------------------------------------------------------------
+
+test('OOB element swaps into the element with the matching id', async () => {
+  setRouter(() => ({ body: '<p>main</p><span id="badge" h-oob="inner">9</span>' }))
+  mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">Go</a><div id="out"></div><span id="badge">0</span>')
+  click($('#a'))
+  await tick(10)
+  assert.equal($('#out').innerHTML, '<p>main</p>') // OOB stripped from main swap
+  assert.equal($('#badge').innerHTML, '9')
+})
+
+// ---------------------------------------------------------------------------
+// Default swap is `inner` (morph is opt-in).
+// ---------------------------------------------------------------------------
+
+test('default swap replaces innerHTML (inner), not append/morph', async () => {
+  setRouter(() => ({ body: '<p>new</p>' }))
+  mount('<a id="a" href="/x" h-get h-target="#out">Go</a><div id="out"><p>old</p></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal($('#out').innerHTML, '<p>new</p>')
+})
+
+// ---------------------------------------------------------------------------
 // h-boost: progressive enhancement of plain hypermedia.
 // ---------------------------------------------------------------------------
 
