@@ -92,6 +92,21 @@ Run `npm test` for the automated suite (builds the bundle, then runs `node --tes
 
 ## Attributes Reference
 
+### Naming conventions
+
+HelmJS uses casing to mark which layer a name belongs to:
+
+- **`h-*` (lowercase)** — HTML attributes you author in markup (`h-get`, `h-target`,
+  `h-swap`). HTML attribute names are case-insensitive and lowercase by convention.
+- **`H-*` (Title-Case)** — HTTP headers, both request (`H-Request`, `H-Target`) and
+  response (`H-Retarget`, `H-Reselect`, …). HTTP header names are case-insensitive on
+  the wire, so `h-reselect` also works, but Title-Case is the HTTP convention and
+  makes "this is a header, not an attribute" obvious at a glance.
+- **`h:*`** — DOM events (`h:before`, `h:swapped`).
+
+So `H-Reselect` is the response-header counterpart of the `h-select` attribute: same
+intent (pick a fragment), different layer — the server dictating it from the response.
+
 ### Request Attributes
 
 | Attribute | Elements | Description |
@@ -122,8 +137,7 @@ Run `npm test` for the automated suite (builds the bundle, then runs `node --tes
 | `h-confirm` | any | Show a confirmation dialog with this message before sending the request. |
 | `h-indicator` | any | CSS selector for element(s) to receive `h-loading` class during request. |
 | `h-headers` | any | JSON object of custom headers to include in the request. |
-| `h-disabled` | any | CSS selector for additional elements to disable during request. |
-| `h-no-disable` | any | Prevent automatic disabling of form buttons during mutation requests. |
+| `h-disable` | any | Control request-time disabling. Absent: auto-disable the form's submit controls during mutations. `h-disable` (present) or a value: disable on any method. `h-disable="false"`: opt out. `h-disable="<selector>"`: also disable the matched elements. |
 | `h-prefetch` | `<a>` | Prefetch content on hover/focus. Value: `hover` (default), `intersect`, or with TTL: `hover 60s`. |
 | `h-include` | any | CSS selector for elements to include in the request. Their name/value pairs are serialized as query params (GET) or FormData (POST/PUT/PATCH). |
 | `h-ignore` | any | Skip HelmJS processing for this element and all descendants. |
@@ -449,7 +463,7 @@ HelmJS dispatches custom events throughout the request lifecycle. All events bub
 | `h:init` | Yes | `{}` | Before element initialization. Cancel to skip. |
 | `h:inited` | No | `{}` | After element initialization complete. |
 | `h:before` | Yes | `{ cfg }` | Before request sent. Modify `cfg` to change request. |
-| `h:after` | Yes | `{ cfg, response, html }` | After response, before swap. Cancel to skip swap. |
+| `h:before-swap` | Yes | `{ cfg, response, html }` | After response, before swap. Cancel to skip the swap. |
 | `h:swapped` | No | `{ cfg, response, html }` | After DOM update complete. |
 | `h:error` | No | `{ cfg, response, html }` or `{ cfg, error }` | Request failed or HTTP 4xx/5xx. |
 
@@ -783,7 +797,7 @@ Ignore new requests while one is in-flight. Useful when you want to prevent dupl
 
 ---
 
-## Auto-Disable Behavior
+## Auto-Disable Behavior (`h-disable`)
 
 ### Mutation Requests
 
@@ -792,12 +806,25 @@ For POST, PUT, PATCH, DELETE requests, HelmJS automatically:
 1. Disables all `<button>` and `<input type="submit">` in the form
 2. Re-enables them after response (success or error)
 
-This prevents double-submission.
+This prevents double-submission. GET requests are not auto-disabled.
+
+`<a>` elements receive the `h-disabled` class (and `aria-disabled`) instead of the
+`disabled` attribute; style it via `a.h-disabled { pointer-events: none }`.
+
+### Disable on GET, or disable an anchor
+
+Add `h-disable` (no value) to disable the element itself on any method:
+
+```html
+<a href="/slow" h-get h-disable>Loads, disabled while in flight</a>
+```
 
 ### Disable Additional Elements
 
+A selector value disables the matched elements (and self) during the request:
+
 ```html
-<form action="/submit" h-post h-disabled="#other-button">
+<form action="/submit" h-post h-disable="#other-button">
   <button>Submit</button>
 </form>
 <button id="other-button">Also disabled during request</button>
@@ -806,7 +833,7 @@ This prevents double-submission.
 ### Prevent Auto-Disable
 
 ```html
-<form action="/submit" h-post h-no-disable>
+<form action="/submit" h-post h-disable="false">
   <button>Won't be disabled</button>
 </form>
 ```
