@@ -320,28 +320,27 @@
     </div>
   </section>
 
-  <!-- Test 17: h-poll -->
+  <!-- Test 17: polling via h-trigger="every" -->
   <section>
-    <h2>17. Polling (h-poll)</h2>
+    <h2>17. Polling (h-trigger="every")</h2>
     <p>Auto-refresh content at intervals</p>
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
       <div>
-        <h4>Every 2s</h4>
-        <div h-poll="/api/poll-time 2s" style="padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
+        <h4>Every 2s (div, in place)</h4>
+        <div h-get="/api/poll-time" h-trigger="every 2s" style="padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">
           Waiting for first poll...
         </div>
       </div>
       <div>
-        <h4>Every 5s (custom target)</h4>
-        <div h-poll="/api/poll-count 5s" h-target="#poll-target-custom">
-          <div id="poll-target-custom" style="padding: 0.5rem; background: #e3f2fd; border-radius: 4px;">
-            Waiting for first poll...
-          </div>
+        <h4>Every 5s (link, custom target)</h4>
+        <a href="/api/poll-count" h-get h-trigger="every 5s" h-target="#poll-target-custom">Polling…</a>
+        <div id="poll-target-custom" style="padding: 0.5rem; background: #e3f2fd; border-radius: 4px;">
+          Waiting for first poll...
         </div>
       </div>
       <div>
         <h4>With OOB (3s)</h4>
-        <div h-poll="/api/poll-oob 3s" h-target="#poll-main">
+        <div h-get="/api/poll-oob" h-trigger="every 3s" h-target="#poll-main">
           <div id="poll-main" style="padding: 0.5rem; background: #f5f5f5; border-radius: 4px;">Main content</div>
         </div>
         <div id="poll-oob-status" style="margin-top: 0.5rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px;">

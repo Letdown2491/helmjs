@@ -365,6 +365,48 @@ test('h:before-swap is cancelable and fires before the swap', async () => {
 })
 
 // ---------------------------------------------------------------------------
+// Polling via h-trigger="every Ns" + generalized h-get URL source.
+// ---------------------------------------------------------------------------
+
+test('h-trigger="every" polls on an interval and stops when detached', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  const root = mount('<a id="a" href="/poll" h-get h-trigger="every 30ms" h-target="#out" h-swap="inner">P</a><div id="out"></div>')
+  await tick(100)
+  const n = captured.fetches.length
+  assert.ok(n >= 2, `expected >=2 polls, got ${n}`)
+  assert.equal($('#out').innerHTML, '<p>tick</p>')
+  root.remove() // detach -> next tick clears the interval
+  await tick(80)
+  assert.ok(captured.fetches.length <= n + 1, 'polling stopped after detach')
+})
+
+test('h-get value is the URL source on a non-anchor/form element (div polling)', async () => {
+  setRouter((url) => ({ body: `<p>${url}</p>` }))
+  mount('<div h-get="/live" h-trigger="every 30ms" h-target="#out" h-swap="inner"></div><div id="out"></div>')
+  await tick(70)
+  assert.ok(captured.fetches.some((f) => f.url === '/live'))
+  assert.equal($('#out').innerHTML, '<p>/live</p>')
+})
+
+test('h-get value enables click-to-load on a plain element', async () => {
+  setRouter(() => ({ body: '<p>loaded</p>' }))
+  mount('<button id="b" h-get="/x" h-target="#out" h-swap="inner">Load</button><div id="out"></div>')
+  click($('#b'))
+  await tick(10)
+  assert.equal(captured.fetches.length, 1)
+  assert.equal($('#out').innerHTML, '<p>loaded</p>')
+})
+
+test('polling flows through the full pipeline (server H-Retarget honored)', async () => {
+  setRouter(() => ({ headers: { 'H-Retarget': '#other' }, body: '<p>moved</p>' }))
+  const root = mount('<a id="a" href="/poll" h-get h-trigger="every 30ms" h-target="#out" h-swap="inner">P</a><div id="out"></div><div id="other"></div>')
+  await tick(60)
+  assert.equal($('#other').innerHTML, '<p>moved</p>')
+  root.remove()
+  await tick(40)
+})
+
+// ---------------------------------------------------------------------------
 // h-boost: progressive enhancement of plain hypermedia.
 // ---------------------------------------------------------------------------
 
