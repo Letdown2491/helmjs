@@ -1,6 +1,6 @@
 # HelmJS
 
-A minimal hypermedia library for HTML-first web applications. **~4.9KB gzipped, zero dependencies.**
+A minimal hypermedia library for HTML-first web applications. **~4.7KB gzipped, zero dependencies.**
 
 ```html
 <script src="https://unpkg.com/helmjs"></script>
@@ -77,7 +77,8 @@ semantics under the `H-` prefix.
 | `H-Refresh: true` | Reload the page. |
 
 `H-Retarget`/`H-Reswap` also apply to 4xx/5xx responses, so the server can place
-errors without the client pre-declaring `h-error-target`.
+errors. With no `H-Retarget`, an error response is swapped into a conventional
+`[h-error]` region if the page has one; either way `h:error` fires.
 
 **Security — response-driven navigation is same-origin by default.** `H-Location`
 always requires a same-origin URL (a cross-origin value is ignored and emits
@@ -124,7 +125,7 @@ Every requesting element must resolve to a **working native control** when JS is
 | AJAX requests | `<a href="/page" h-get>`, `<form action="/search" h-get>` |
 | Form submission | `<form action="/api" h-post>` |
 | Target element | `h-target="#content"` |
-| Swap strategies | `h-swap="morph"` (default), `inner`, `outer`, `append`, etc. |
+| Swap strategies | `h-swap="inner"` (default), `outer`, `append`, `morph`, etc. |
 | Multiple triggers | `h-trigger="input debounce:300, submit"` |
 | Cross-element events | `h-trigger="input from:#search-box"` |
 | Request coordination | `h-sync="abort"` (cancel stale), `h-sync="drop"` (ignore new) |
@@ -209,14 +210,18 @@ design choices:
 
 ## Size
 
-~4.9KB gzipped, zero runtime dependencies (up from a ~3.6KB baseline). The growth
-buys the full server-driven control surface — the response headers above, which are
-what make the **server** the engine of state transitions rather than the client —
-plus `h-boost`, prefetch, and the same-origin security hardening on response-driven
-navigation. The header surface is a compact dispatch (a handful of `res.headers.get`
-reads guarded by early returns; one shared `sameOrigin` helper and one swap-strategy
-regex), with no per-feature framework. The current size is an accepted, documented
-tradeoff for that capability; absent any `H-*` header, behavior is unchanged.
+~4.7KB gzipped, zero runtime dependencies. The bulk buys the full server-driven
+control surface — the response headers above, which are what make the **server** the
+engine of state transitions rather than the client — plus `h-boost`, morph, prefetch,
+and the same-origin security hardening on response-driven navigation. The header
+surface is a compact dispatch (a handful of `res.headers.get` reads guarded by early
+returns; one shared `sameOrigin` helper and one swap-strategy regex), with no
+per-feature framework. Absent any `H-*` header, behavior is unchanged.
+
+The default swap is `inner` (predictable, and the shared default a future morph-less
+"lean" build would also use); `morph` is opt-in via `h-swap="morph"`. `morph` is the
+largest single chunk of the bundle, so a planned lean build will drop it — and
+because the default is already `inner`, swapping builds won't change default behavior.
 
 ## Documentation
 

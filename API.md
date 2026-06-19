@@ -37,7 +37,7 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 3. **Strict HATEOAS compliance** - The client never invents URLs. All actions come from server-provided hypermedia controls. The server can drive every transition from the response via [response headers](#response-headers-server-driven-control), and plain hypermedia can be enhanced transparently with [`h-boost`](#progressive-enhancement-h-boost). See the [compliance summary](README.md#compliance-summary) in the README.
 
-4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~4.9KB gzipped (see [Size](README.md#size) for what that buys).
+4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~4.7KB gzipped (see [Size](README.md#size) for what that buys).
 
 5. **Intuitive defaults** - Zero config for common cases. Opinionated defaults enforce good hypermedia practices.
 
@@ -108,9 +108,8 @@ Run `npm test` for the automated suite (builds the bundle, then runs `node --tes
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
 | `h-target` | any | CSS selector for response destination. Default: the triggering element. **Fallback only** — prefer server-declared placement (`h-oob` or the `H-Retarget` response header), which keeps responses self-descriptive. |
-| `h-swap` | any | How to insert the response. Default: `morph` (`inner` when boosted). Overridable per-response with `H-Reswap`. |
+| `h-swap` | any | How to insert the response. Default: `inner`. Use `h-swap="morph"` to opt into DOM-diffing. Overridable per-response with `H-Reswap`. |
 | `h-select` | any | CSS selector to extract a fragment from the response before swapping. Overridable per-response with `H-Reselect`. |
-| `h-error-target` | any | CSS selector for where to swap 4xx/5xx error responses. |
 | `h-scroll` | any | Scroll behavior after swap: `top`, `bottom`, `target`, or a CSS selector. |
 | `h-focus` | any | CSS selector for element to focus after swap. |
 
@@ -158,18 +157,20 @@ The `h-swap` attribute controls how response HTML is inserted into the DOM.
 
 | Strategy | Description |
 |----------|-------------|
-| `morph` | **Default.** Smart DOM diffing that preserves focus, input values, and scroll position. |
-| `inner` | Replace the target's innerHTML. |
+| `inner` | **Default.** Replace the target's innerHTML. |
 | `outer` | Replace the entire target element (outerHTML). |
 | `before` | Insert before the target element. |
 | `after` | Insert after the target element. |
 | `prepend` | Insert at the beginning of the target's children. |
 | `append` | Insert at the end of the target's children. |
+| `morph` | Smart DOM diffing that preserves focus, input values, and scroll position. Opt-in. |
 | `none` | Don't swap. Useful for side-effect-only requests. |
 
-### Morph Algorithm
+### Morph Algorithm (`h-swap="morph"`)
 
-The `morph` strategy performs intelligent DOM diffing:
+`inner` is the default because it is predictable and small. Opt into `morph` when you
+need to update content *in place* without losing focus, input values, or scroll
+position. The `morph` strategy performs intelligent DOM diffing:
 
 1. Matches elements by `id` attribute first
 2. Falls back to position + tag name matching
@@ -178,7 +179,9 @@ The `morph` strategy performs intelligent DOM diffing:
 5. Updates attributes that changed
 6. Recursively morphs children
 
-This preserves user input and focus during updates.
+> **Note:** `morph` is the largest single piece of the bundle. A future "lean" build
+> will omit it; because the default swap is already `inner`, switching builds will not
+> change default behavior.
 
 ---
 
@@ -294,58 +297,23 @@ Out-of-band (OOB) updates allow a single response to update multiple elements.
 
 ### OOB Swap Strategies
 
+The OOB element's `id` identifies the **target** (an existing element with that id).
+
 | Value | Behavior |
 |-------|----------|
-| `true` | Outer swap (replace entire element) |
-| `inner` | Replace innerHTML only |
-| `outer` | Replace entire element |
-| `prepend` | Insert at beginning |
-| `append` | Insert at end |
-| `value` | Set target's `.value` property (for inputs/textareas) |
-| `replace` | Replace text within target's value (see below) |
-| `merge` | Merge JSON into target's value (see below) |
+| `true` | Replace the entire target element with the OOB element (outer). |
+| `outer` | Same as `true`. |
+| `inner` | Set the target's innerHTML to the OOB element's contents. |
+| `prepend` | Insert the OOB element's contents at the start of the target. |
+| `append` | Insert the OOB element's contents at the end of the target. |
+| `before` / `after` | Insert the OOB element's contents before/after the target. |
 
-The target element is determined by the OOB element's `id` attribute.
+Only `true`/`outer` use the OOB element itself; every other strategy uses the OOB
+element's *contents*, so the wrapper tag isn't duplicated into the target.
 
-### Value Strategies for Inputs
-
-These strategies work with `<input>` and `<textarea>` elements:
-
-#### `h-oob="value"`
-
-Sets the target element's value:
-
-```html
-<textarea id="post-content" h-oob="value">New content here</textarea>
-<input id="my-input" h-oob="value" value="New value">
-```
-
-#### `h-oob="replace"`
-
-Replaces text within the target's existing value. By default, replaces the **last occurrence** (ideal for autocomplete where you're completing the most recent typed text).
-
-```html
-<!-- Replace last occurrence of @vin with @alice -->
-<textarea id="post-content" h-oob="replace"
-          data-find="@vin" data-replace="@alice"></textarea>
-
-<!-- Replace first occurrence -->
-<textarea id="post-content" h-oob="replace" data-first
-          data-find="@vin" data-replace="@alice"></textarea>
-
-<!-- Replace all occurrences -->
-<textarea id="post-content" h-oob="replace" data-all
-          data-find="old" data-replace="new"></textarea>
-```
-
-#### `h-oob="merge"`
-
-Merges JSON into the target's existing JSON value. Useful for accumulating data like mention mappings:
-
-```html
-<!-- If target has {"bob":"xyz"}, result is {"bob":"xyz","alice":"abc123"} -->
-<input id="mentions-data" h-oob="merge" value='{"alice":"abc123"}'>
-```
+> OOB is for **DOM** updates. Input-value manipulation strategies (`value`,
+> `replace`, `merge`) were removed in the slim-down — handle that kind of niche
+> client state in an `h:swapped`/`H-Trigger` handler instead.
 
 ---
 
@@ -608,6 +576,25 @@ pre-encode layout/routing knowledge. These mirror htmx `HX-*` semantics under th
 status code. `H-Retarget`/`H-Reswap`/`H-Reselect`, `H-Trigger-After-Swap`, and the
 URL headers apply to the swap (success path), and `H-Retarget`/`H-Reswap`
 additionally redirect error placement.
+
+### Error placement
+
+For a 4xx/5xx response the order is:
+
+1. If the server sent `H-Retarget`, the error is swapped into that element
+   (with `H-Reswap` if provided, else `inner`).
+2. Otherwise, if the page contains an element with the `[h-error]` attribute, the
+   error is swapped into it (`inner`). This is a zero-config convention for a shared
+   error region — no per-element wiring.
+3. Either way, the `h:error` event fires (`detail` = `{ cfg, response, html }`), so
+   you can handle errors in script regardless of placement.
+
+```html
+<!-- one conventional error region for the page -->
+<div h-error role="alert"></div>
+```
+
+Successful (2xx) responses never swap into `[h-error]`.
 
 ### Security: same-origin navigation
 
