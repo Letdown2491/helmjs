@@ -1,6 +1,9 @@
 # HelmJS
 
-A minimal hypermedia library for HTML-first web applications. **~4.7KB gzipped, zero dependencies.**
+**The smallest hypermedia library where the server — not the client — drives every
+state transition, and it all degrades to plain HTML.**
+
+~4.7KB gzipped · zero dependencies · TypeScript.
 
 ```html
 <script src="https://unpkg.com/helmjs"></script>
