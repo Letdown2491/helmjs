@@ -82,9 +82,6 @@ const fireTriggers = (el: Element, spec: string): void => {
   else for (const n of spec.split(',')) { const t = n.trim(); if (t) fire(el, t) }
 }
 
-const isInput = (el: Element): el is HTMLInputElement | HTMLTextAreaElement =>
-  el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
-
 const hdrs = (tgt?: string | null): Record<string, string> =>
   tgt ? { 'H-Request': 'true', 'H-Target': tgt } : { 'H-Request': 'true' }
 
@@ -122,20 +119,10 @@ const processOOB = (html: string): string => {
     const s = o.getAttribute('h-oob') || 'true'
     o.removeAttribute('h-oob')
     const tgt = o.id ? document.getElementById(o.id) : null
-    if (tgt) {
-      if (s === 'value' && isInput(tgt)) {
-        tgt.value = o.getAttribute('value') ?? o.textContent ?? ''
-      } else if (s === 'replace' && isInput(tgt)) {
-        const find = o.getAttribute('data-find') ?? '', repl = o.getAttribute('data-replace') ?? ''
-        if (find) {
-          if (o.hasAttribute('data-all')) tgt.value = tgt.value.split(find).join(repl)
-          else if (o.hasAttribute('data-first')) tgt.value = tgt.value.replace(find, repl)
-          else { const i = tgt.value.lastIndexOf(find); if (i >= 0) tgt.value = tgt.value.slice(0, i) + repl + tgt.value.slice(i + find.length) }
-        }
-      } else if (s === 'merge' && isInput(tgt)) {
-        try { tgt.value = JSON.stringify({ ...JSON.parse(tgt.value || '{}'), ...JSON.parse(o.getAttribute('value') ?? o.textContent ?? '{}') }) } catch {}
-      } else doSwap(tgt, o.outerHTML, s === 'true' ? 'outer' : s as SwapStrategy)
-    }
+    // The OOB element's id names the target; only outer/true replaces the element
+    // itself (outerHTML), every other strategy uses the OOB element's contents.
+    const strat = s === 'true' ? 'outer' : s as SwapStrategy
+    if (tgt) doSwap(tgt, strat === 'outer' ? o.outerHTML : o.innerHTML, strat)
     o.remove()
   }
   return t.innerHTML
@@ -284,7 +271,7 @@ const init = (el: Element): void => {
     const boost = boosted(el)
     const tgtSel = attr(el, 'h-target') || (boost ? 'body' : '')
     const target = tgtSel ? $(tgtSel) ?? el : el
-    const swap = attr(el, 'h-swap', boost ? 'inner' : 'morph') as SwapStrategy
+    const swap = attr(el, 'h-swap', 'inner') as SwapStrategy
     const hdrAttr = attr(el, 'h-headers')
     let headers = hdrs(tgtSel)
     if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
@@ -369,8 +356,9 @@ const init = (el: Element): void => {
       const histTarget = reTarget || tgtSel || null
 
       if (res.status >= 400) {
-        const errSel = attr(el, 'h-error-target')
-        const errTgt = errSel ? $(errSel) : reTarget ? cfg.target : null
+        // Error placement: server-driven via H-Retarget, else a conventional
+        // [h-error] region if the page provides one; always fire h:error.
+        const errTgt = reTarget ? cfg.target : $('[h-error]')
         if (errTgt) doSwap(errTgt, html, validReSwap || 'inner')
         emit(el, 'error', { cfg, response: res, html })
       } else if (emit(el, 'after', { cfg, response: res, html })) {
@@ -569,7 +557,7 @@ document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded'
 
 document.addEventListener('h:process', (e) => process(e.target as Node))
 
-history.replaceState({ h: true, url: location.href, target: null, swap: 'morph', select: null, title: document.title } as HState, '')
+history.replaceState({ h: true, url: location.href, target: null, swap: 'inner', select: null, title: document.title } as HState, '')
 
 window.addEventListener('popstate', async (e) => {
   const s = e.state as HState | null
