@@ -39,6 +39,10 @@ const toggleDisabled = (els: Element[], on: boolean) => {
 const emit = (el: Element, type: string, detail: object = {}): boolean =>
   el.dispatchEvent(new CustomEvent(`h:${type}`, { detail, bubbles: true, cancelable: true }))
 
+// Fire a raw (un-prefixed) event, e.g. for server-driven H-Trigger.
+const fire = (el: Element, type: string, detail: unknown = {}): void =>
+  void el.dispatchEvent(new CustomEvent(type, { detail, bubbles: true }))
+
 const doScroll = (el: Element, scroll: string): void => {
   if (scroll === 'top') window.scrollTo({ top: 0, behavior: 'smooth' })
   else if (scroll === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
@@ -54,6 +58,29 @@ const selectFragment = (html: string, selector: string): string => {
 }
 
 const ignore = (el: Element): boolean => !!el.closest('[h-ignore]')
+
+// Valid swap strategies, used to validate server-supplied H-Reswap values.
+const SWAP_RE = /^(inner|outer|before|after|prepend|append|none|morph)$/
+
+// True when a (possibly relative) URL resolves to the current origin.
+const sameOrigin = (u: string): boolean => {
+  try { return new URL(u, location.href).origin === location.origin } catch { return false }
+}
+
+// An element is boosted when an ancestor (or itself) carries h-boost (not "false").
+const boosted = (el: Element): boolean => {
+  const b = el.closest('[h-boost]')
+  return !!b && b.getAttribute('h-boost') !== 'false'
+}
+
+// Fire one or many server-driven events from an H-Trigger header value.
+// Accepts a JSON object {"name": detail, ...} or a comma-separated list of names.
+const fireTriggers = (el: Element, spec: string): void => {
+  let map: Record<string, unknown> | undefined
+  try { const j = JSON.parse(spec); if (j && typeof j === 'object') map = j } catch {}
+  if (map) for (const k in map) fire(el, k, map[k])
+  else for (const n of spec.split(',')) { const t = n.trim(); if (t) fire(el, t) }
+}
 
 const isInput = (el: Element): el is HTMLInputElement | HTMLTextAreaElement =>
   el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
@@ -185,17 +212,37 @@ const morphNodes = (old: Element, next: Element): void => {
   morphChildren(old, next)
 }
 
+// Client-side navigation to a server-provided URL (H-Location / boosted history
+// restore): fetch HTML, swap the <body>, and record a re-derivable history entry.
+const navigate = async (url: string): Promise<void> => {
+  try {
+    const html = extractTitle(await (await fetch(url, { headers: hdrs('body') })).text())
+    doSwap(document.body, selectFragment(html, 'body'), 'inner')
+    history.pushState({ h: true, url, target: 'body', swap: 'inner', select: 'body', title: document.title } as HState, '', url)
+  } catch { location.href = url }
+}
+
 const findMethod = (el: Element): { method: HttpMethod; action: string } | null => {
   const tag = el.tagName
-  if (has(el, 'h-get')) {
+  const boost = boosted(el)
+  if (has(el, 'h-get') || (boost && tag === 'A')) {
     const url = el.getAttribute(tag === 'A' ? 'href' : tag === 'FORM' ? 'action' : '')
-    return url ? { method: 'GET', action: url } : null
+    if (!url) return null
+    // Don't boost links the browser should handle natively (new tab, download,
+    // in-page anchors, cross-origin) — they must stay plain navigations.
+    if (boost && tag === 'A' && !has(el, 'h-get') &&
+      (el.hasAttribute('target') || el.hasAttribute('download') ||
+        url.startsWith('#') || new URL(url, location.href).origin !== location.origin))
+      return null
+    return { method: 'GET', action: url }
   }
   if (tag === 'FORM') {
     const action = el.getAttribute('action')
     if (!action) return null
     for (const m of ['post', 'put', 'patch', 'delete'] as const)
       if (has(el, `h-${m}`)) return { method: m.toUpperCase() as HttpMethod, action }
+    // Boosted form: derive the method from the native form (GET or POST only).
+    if (boost) return { method: (el.getAttribute('method') || 'get').toUpperCase() === 'POST' ? 'POST' : 'GET', action }
   }
   return null
 }
@@ -232,9 +279,12 @@ const init = (el: Element): void => {
           body.append(inc.name, inc.value)
     }
 
-    const tgtSel = attr(el, 'h-target')
+    // Boosted controls upgrade plain links/forms to whole-page partial navigation:
+    // default to replacing <body>'s contents, matching a full page load JS-off.
+    const boost = boosted(el)
+    const tgtSel = attr(el, 'h-target') || (boost ? 'body' : '')
     const target = tgtSel ? $(tgtSel) ?? el : el
-    const swap = attr(el, 'h-swap', 'morph') as SwapStrategy
+    const swap = attr(el, 'h-swap', boost ? 'inner' : 'morph') as SwapStrategy
     const hdrAttr = attr(el, 'h-headers')
     let headers = hdrs(tgtSel)
     if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
@@ -282,13 +332,46 @@ const init = (el: Element): void => {
         res = await fetch(url, { method: cfg.method, headers: cfg.headers, body: cfg.body, signal: controller?.signal })
         html = extractTitle(await res.text())
       }
-      const selSel = attr(el, 'h-select')
+      // Server-driven navigation (works on any status): the response is the
+      // engine of state transitions and may redirect/refresh the whole client.
+      // Response-driven navigation is same-origin by default to avoid being an
+      // open-redirect surface; cross-origin redirects need an explicit opt-in.
+      const H = (n: string) => res.headers.get(n)
+      if (H('H-Refresh') === 'true') { location.reload(); return }
+      const redirect = H('H-Redirect')
+      if (redirect) {
+        if (sameOrigin(redirect) || document.documentElement.hasAttribute('h-allow-cross-origin')) location.href = redirect
+        else emit(el, 'error', { cfg, error: Error('cross-origin H-Redirect blocked') })
+        return
+      }
+      const location_ = H('H-Location')
+      if (location_) {
+        if (sameOrigin(location_)) await navigate(location_)
+        else emit(el, 'error', { cfg, error: Error('cross-origin H-Location blocked') })
+        return
+      }
+      // H-Trigger fires on receive (pre-swap, htmx parity); H-Trigger-After-Swap
+      // fires once the swap is applied so handlers can see the new DOM.
+      const trig = H('H-Trigger')
+      if (trig) fireTriggers(el, trig)
+      const trigAfter = H('H-Trigger-After-Swap')
+
+      // The response may override the client's pre-declared placement/selection,
+      // so the requesting element needn't carry out-of-band layout knowledge.
+      const reSelect = H('H-Reselect')
+      const selSel = reSelect ?? (attr(el, 'h-select') || (boost ? 'body' : ''))
       if (selSel) html = selectFragment(html, selSel)
+      const reTarget = H('H-Retarget')
+      if (reTarget) { const t = $(reTarget); if (t) cfg.target = t }
+      const reSwap = H('H-Reswap')
+      const validReSwap: SwapStrategy | null = reSwap && SWAP_RE.test(reSwap) ? reSwap as SwapStrategy : null
+      if (validReSwap) cfg.swap = validReSwap
+      const histTarget = reTarget || tgtSel || null
 
       if (res.status >= 400) {
         const errSel = attr(el, 'h-error-target')
-        const errTgt = errSel ? $(errSel) : null
-        if (errTgt) doSwap(errTgt, html, 'inner')
+        const errTgt = errSel ? $(errSel) : reTarget ? cfg.target : null
+        if (errTgt) doSwap(errTgt, html, validReSwap || 'inner')
         emit(el, 'error', { cfg, response: res, html })
       } else if (emit(el, 'after', { cfg, response: res, html })) {
         html = processOOB(html)
@@ -300,6 +383,7 @@ const init = (el: Element): void => {
 
         emit(el, 'swapped', { cfg, response: res, html })
         if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg, response: res, html })
+        if (trigAfter) fireTriggers(el, trigAfter)
 
         if (scrollAttr) {
           if (scrollAttr === 'target' && cfg.swap === 'outer') {
@@ -311,11 +395,20 @@ const init = (el: Element): void => {
         const focusSel = attr(el, 'h-focus')
         if (focusSel) ($(focusSel) as HTMLElement | null)?.focus?.()
 
-        const push = has(el, 'h-push-url'), replace = has(el, 'h-replace-url')
-        if (push || replace) {
-          const st: HState = { h: true, url, target: tgtSel || null, swap: cfg.swap, select: selSel || null, title: document.title }
-          if (push) history.pushState(st, '', url)
-          else history.replaceState(st, '', url)
+        // URL changes: server headers (H-Push-Url / H-Replace-Url) win over
+        // attributes; boosted GET navigation pushes by default. A header value
+        // of "false" suppresses; any other value is the URL to write.
+        const pushAttr = el.getAttribute('h-push-url'), replAttr = el.getAttribute('h-replace-url')
+        const pushHdr = H('H-Push-Url'), replHdr = H('H-Replace-Url')
+        let pushUrl: string | null = pushHdr ? (pushHdr === 'false' ? null : pushHdr)
+          : (pushAttr === 'false' ? null : (pushAttr !== null || (boost && isGet)) ? url : null)
+        let replUrl: string | null = replHdr ? (replHdr === 'false' ? null : replHdr)
+          : (replAttr === 'false' ? null : replAttr !== null ? url : null)
+        if (pushUrl || replUrl) {
+          const navUrl = (pushUrl || replUrl)!
+          const hist: HState = { h: true, url: navUrl, target: histTarget, swap: cfg.swap, select: selSel || null, title: document.title }
+          if (pushUrl) history.pushState(hist, '', navUrl)
+          else history.replaceState(hist, '', navUrl)
         }
       }
     } catch (error) {
@@ -464,6 +557,9 @@ const process = (node: Node): void => {
   if (!(node instanceof Element) || ignore(node)) return
   initEl(node)
   node.querySelectorAll('a[h-get][href], form[h-get][action], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-poll], [h-prefetch]').forEach(initEl)
+  // Boosted plain controls: upgrade native <a href>/<form action> with no h-* attrs.
+  if (node.closest('[h-boost]')) node.querySelectorAll('a[href], form[action]').forEach(initEl)
+  node.querySelectorAll('[h-boost] a[href], [h-boost] form[action]').forEach(initEl)
 }
 
 const observer = new MutationObserver(recs => { for (const r of recs) r.addedNodes.forEach(process) })
