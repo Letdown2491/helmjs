@@ -14,6 +14,7 @@ Complete API reference and implementation details for HelmJS.
 - [Prefetch](#prefetch)
 - [Polling](#polling)
 - [Server-Sent Events](#server-sent-events)
+- [Text Insertion (h-insert)](#text-insertion-h-insert)
 - [Events](#events)
 - [CSS Classes](#css-classes)
 - [Request Headers](#request-headers)
@@ -37,7 +38,7 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 
 3. **Strict HATEOAS compliance** - The client never invents URLs. All actions come from server-provided hypermedia controls. The server can drive every transition from the response via [response headers](#response-headers-server-driven-control), and plain hypermedia can be enhanced transparently with [`h-boost`](#progressive-enhancement-h-boost). See the [compliance summary](README.md#compliance-summary) in the README.
 
-4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~4.7KB gzipped (see [Size](README.md#size) for what that buys).
+4. **Minimal footprint** - Every byte must be justified. No runtime dependencies. Currently ~5.3KB gzipped (see [Size](README.md#size) for what that buys).
 
 5. **Intuitive defaults** - Zero config for common cases. Opinionated defaults enforce good hypermedia practices.
 
@@ -151,6 +152,16 @@ intent (pick a fragment), different layer: the server dictating it from the resp
 | `h-prefetch` | `<a>` | Prefetch content on hover/focus. Value: `hover` (default), `intersect`, or with TTL: `hover 60s`. |
 | `h-include` | any | CSS selector for elements to include in the request. Their name/value pairs are serialized as query params (GET) or FormData (POST/PUT/PATCH). |
 | `h-ignore` | any | Skip HelmJS processing for this element and all descendants. |
+
+### Client-Side Actions
+
+| Attribute | Elements | Description |
+|-----------|----------|-------------|
+| `h-insert` | any | On click, insert this text into the `h-insert-target` field at the caret. No request. See [Text Insertion](#text-insertion-h-insert). |
+| `h-insert-target` | any | CSS selector for the `<input>`/`<textarea>` that `h-insert` edits. |
+| `h-insert-replace` | any | Optional regex, matched against the target's value up to the caret; the (caret-anchored) match is replaced by the inserted text instead of a plain insert. |
+| `h-selection` | any | Send a field's caret as `H-Selection-Start`/`H-Selection-End` request headers. No value: the requesting element. Selector: that field. See [Caret position](#caret-position-h-selection). |
+| `h-combobox` | `<input>`/`<textarea>` | CSS selector for the suggestion popup; enables Arrow/Enter/Escape keyboard navigation of its `[role=option]` items. See [Text Insertion](#text-insertion-h-insert). |
 
 ### History
 
@@ -275,6 +286,32 @@ Listen for events on a different element. Useful for forms that should react to 
 
 The form listens for `input` events on `#search-input`, but the form itself handles the request (using its `action`, `h-target`, etc.).
 
+### Submit Button Overrides
+
+When a form is submitted by a specific button, that button can override the form's
+request config, falling back to the form for anything it doesn't set. This mirrors
+native HTML, where a submit button's `formaction`/`formmethod` override the form.
+
+```html
+<form action="/posts/42" method="post" h-post h-target="#post">
+  <textarea name="body"></textarea>
+  <button>Save</button>
+  <!-- Same form, different request: -->
+  <button formaction="/posts/42" h-delete h-target="#post" h-swap="outer">Delete</button>
+  <button h-get="/posts/42/preview" h-target="#preview" h-swap="inner">Preview</button>
+</form>
+```
+
+The clicked button overrides, in this order of precedence:
+
+- Native `formaction` (URL) and `formmethod` (`get`/`post`), then
+- `h-get`/`h-post`/`h-put`/`h-patch`/`h-delete` (method; `h-get`'s value also sets the URL).
+
+It also overrides `h-target`, `h-swap`, `h-select`, and `h-headers` when present on the
+button. The button's `name`/`value` is still sent with the form data, as in plain HTML.
+The form must itself be helm-controlled (carry its own `h-*` method or `h-boost`); the
+button refines an already-enhanced form rather than enhancing a plain one.
+
 ### Intersection Observer
 
 The special `intersect` trigger fires when the element enters the viewport:
@@ -290,7 +327,7 @@ Intersection-specific modifiers:
 | Modifier | Description |
 |----------|-------------|
 | `threshold:0.5` | Visibility ratio to trigger (0-1). Default: 0. |
-| `rootMargin:100px` | Margin around viewport. Default: 0px. |
+| `root-margin:100px` | Margin around viewport. Default: 0px. |
 
 ### Interval (`every`)
 
@@ -485,6 +522,94 @@ data: <div class="message">Hello world</div>
 
 ---
 
+## Text Insertion (`h-insert`)
+
+`h-insert` is the one **client-side** primitive: a click action that edits an
+input/textarea in place. Caret editing can't be expressed as a DOM swap, so the
+swap model can't reach it; everything else stays pure hypermedia.
+
+On click, the element with `h-insert`:
+
+1. reads the live caret (`selectionStart`/`selectionEnd`) of `h-insert-target`;
+2. if `h-insert-replace` is set, matches that regex against the value **up to the
+   caret** and extends the replaced range back to the match start (anchor it with
+   `$` so it grabs the active trailing token); otherwise inserts at the caret,
+   replacing any current selection;
+3. splices in `h-insert`'s text, places the caret right after it, and refocuses
+   the field;
+4. dispatches a bubbling `input` event on the target, so anything bound to the
+   field re-runs (live preview, validation, and an `h-trigger="input"` request).
+
+### Server-backed typeahead (@-mention / :emoji)
+
+The search half is plain hypermedia: on each keystroke, ask the server for matches
+and swap the rendered dropdown into place. Picking a suggestion is the `h-insert`
+half: it replaces the typed token and, via the dispatched `input`, re-runs the
+suggest request, which now finds no active token and returns an empty dropdown,
+closing it. No extra wiring.
+
+```html
+<!-- typing asks the server for matches for the trailing token -->
+<textarea id="compose" name="content"
+          h-get="/compose/suggest" h-trigger="input debounce:150"
+          h-include="#compose" h-target="#suggest" h-swap="inner" h-push-url="false"></textarea>
+<div id="suggest"></div>
+```
+
+```html
+<!-- server-rendered into #suggest; clicking replaces the @al token in place -->
+<button h-insert="nostr:npub1abc… "
+        h-insert-target="#compose"
+        h-insert-replace="[@:]\S*$">@alice</button>
+```
+
+This generalizes beyond mentions: emoji (`:smi…`), slash-commands, "insert
+snippet," and tag pickers.
+
+**Degradation:** `h-insert` is a JS-on enhancement. With JS off the textarea is a
+plain field, and the baseline (type the handle yourself, use the OS emoji picker)
+still works, so there's no regression.
+
+For exact token detection when editing mid-text, opt the suggest request into
+sending the caret with [`h-selection`](#caret-position-h-selection).
+
+### Keyboard navigation (`h-combobox`)
+
+Click-to-pick works out of the box. Add `h-combobox` to the field, pointing at the
+popup container, for Arrow/Enter/Escape navigation:
+
+```html
+<textarea id="compose" name="content" role="combobox" aria-controls="suggest"
+          h-get="/compose/suggest" h-trigger="input debounce:150"
+          h-include="#compose" h-target="#suggest" h-selection
+          h-combobox="#suggest"></textarea>
+<div id="suggest"></div>
+```
+
+```html
+<!-- items are [role=option]; clicking or Enter fires their h-insert -->
+<button role="option" h-insert="nostr:npub1abc… " h-insert-target="#compose"
+        h-insert-replace="[@:]\S*$">@alice</button>
+```
+
+- **↓ / ↑** move the highlight (wrapping at the ends); the active item gets the
+  `h-active` class and `aria-selected="true"`, and the field's `aria-activedescendant`
+  points at it (when the option has an `id`). Style `.h-active` yourself.
+- **Enter** activates the highlighted item (clicks it, which runs its `h-insert`)
+  and is swallowed so it doesn't submit/insert a newline.
+- **Escape** closes the popup.
+
+The active item is tracked purely as the `h-active` class in the DOM, so it stays
+correct as the server re-renders the list on each keystroke. To make Enter pick the
+top match before any arrow press, have the server render the first option with
+`class="h-active"`. Keys are only intercepted while the popup has `[role=option]`
+items, so a closed/empty dropdown leaves normal caret movement and Enter untouched.
+
+**Degradation:** like the rest, JS-on only. With JS off the options are still plain
+focusable controls you can Tab to and activate.
+
+---
+
 ## Events
 
 HelmJS dispatches custom events throughout the request lifecycle. All events bubble and are cancelable (where noted).
@@ -605,6 +730,7 @@ newContent.dispatchEvent(new CustomEvent('h:process', { bubbles: true }))
 |-------|------------|-------------|
 | `h-loading` | Indicator element | Added during request, removed after. |
 | `h-disabled` | `<a>` elements | Added during mutation requests to indicate disabled state. |
+| `h-active` | `[role=option]` | Added to the highlighted `h-combobox` suggestion (keyboard nav). |
 
 ### Styling Example
 
@@ -636,8 +762,30 @@ H-Target: <selector>   (when h-target is specified)
 |--------|-------|-------------|
 | `H-Request` | `true` | Always sent. Indicates this is a HelmJS request. |
 | `H-Target` | CSS selector | Sent when `h-target` is specified. Contains the target selector value. |
+| `H-Selection-Start` | integer | Caret/selection start of the `h-selection` field (opt-in). |
+| `H-Selection-End` | integer | Caret/selection end of the `h-selection` field (opt-in). |
 
 Use these server-side to detect HelmJS requests and return appropriately scoped HTML fragments. The `H-Target` header allows the server to distinguish between requests targeting different elements and return the most relevant response.
+
+### Caret position (`h-selection`)
+
+For server-backed typeahead, the server needs to know *where* the caret is to find
+the active token. Add `h-selection` to the requesting element to send the field's
+caret as `H-Selection-Start`/`H-Selection-End`:
+
+- `h-selection` (no value) — the requesting element itself is the field.
+- `h-selection="#compose"` — read the caret from another field by selector.
+
+```html
+<textarea id="compose" name="content"
+          h-get="/compose/suggest" h-trigger="input debounce:150"
+          h-include="#compose" h-target="#suggest" h-selection></textarea>
+```
+
+The server then slices on the exact caret (`value[:H-Selection-Start]`) rather than
+assuming the active token is at the end of the value, so token detection stays
+correct when editing mid-text. Headers are omitted for fields that don't expose a
+selection (e.g. `<input type="number">`).
 
 ### Custom Headers
 
@@ -764,6 +912,25 @@ Within an `h-boost` container:
 - Any subtree can opt out with `h-boost="false"`.
 - Explicit `h-*` attributes still win: you can boost a region but override
   `h-target`/`h-swap`/`h-push-url` on individual elements.
+
+### Auto push-url is scoped to navigations
+
+A boosted GET only pushes its URL to the address bar when it's a genuine
+**navigation**, judged by two signals:
+
+1. The trigger is the element's **default interaction** (a `click` on a link/element,
+   a `submit` on a form). Non-default triggers (`every`, `load`, `intersect`, `change`,
+   custom/`from:` events) are not navigations.
+2. The swap targets the **boost default** (the whole `body`). An explicit `h-target`
+   to a sub-region signals an in-place update, not a page change.
+
+So in-place / background GET loaders inside a boosted container, pollers
+(`h-trigger="every …"`), lazy hydration (`h-trigger="load"`), infinite-scroll
+sentinels (`h-trigger="intersect"`), and region-updating `<button h-get>` actions,
+do **not** rewrite the address bar (which would break reload, since those endpoints
+return bare fragments). `h-push-url` remains the explicit override in both
+directions: set it to force a push on a non-navigation, or `h-push-url="false"` to
+suppress one on a navigation.
 
 **Degradation:** with JavaScript disabled, every boosted element is just a normal
 link/form, so the browser performs a full page load to the same destination.

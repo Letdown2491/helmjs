@@ -3,7 +3,7 @@
 **The smallest hypermedia library where the server, not the client, drives every
 state transition, and it all degrades to plain HTML.**
 
-~4.7KB gzipped · zero dependencies · TypeScript.
+~5.3KB gzipped · zero dependencies · TypeScript.
 
 ```html
 <script src="https://unpkg.com/helmjs"></script>
@@ -135,6 +135,8 @@ Every requesting element must resolve to a **working native control** when JS is
 | Infinite scroll | `h-trigger="intersect once"` |
 | Polling | `h-trigger="every 5s"` |
 | Server-Sent Events | `h-sse="/events"` |
+| Typeahead insert | `h-insert` + `h-insert-target` (e.g. @-mention / :emoji pickers) |
+| Combobox keys | `h-combobox` (Arrow/Enter/Escape navigation of a suggestion dropdown) |
 | Multi-element updates | `h-oob="true"` |
 | Server-driven control | `H-Retarget`, `H-Reswap`, `H-Push-Url`, `H-Redirect`, … (response headers) |
 | Progressive enhancement | `<body h-boost>` upgrades plain `<a>`/`<form>` |
@@ -221,7 +223,7 @@ design choices:
 
 ## Size
 
-~4.7KB gzipped, zero runtime dependencies. The bulk buys the full server-driven
+~5.3KB gzipped, zero runtime dependencies. The bulk buys the full server-driven
 control surface: the response headers above, which are what make the **server** the
 engine of state transitions rather than the client, plus `h-boost`, morph, prefetch,
 and the same-origin security hardening on response-driven navigation. The header
@@ -230,7 +232,7 @@ returns; one shared `sameOrigin` helper and one swap-strategy regex), with no
 per-feature framework. Absent any `H-*` header, behavior is unchanged.
 
 The default swap is `inner` (predictable and small); `morph` is opt-in via
-`h-swap="morph"`. We ship a single batteries-included build: at under 5KB the savings
+`h-swap="morph"`. We ship a single batteries-included build: at ~5KB the savings
 from carving optional features out into a second build weren't worth the added
 complexity for users or maintainers.
 

@@ -33,7 +33,7 @@ interface HState {
   title: string
 }
 
-interface ElState { init?: true; abort?: AbortController; sse?: EventSource }
+interface ElState { init?: true; abort?: AbortController; sse?: EventSource; insert?: true; combobox?: true }
 
 interface PrefetchEntry { promise: Promise<{ response: Response; text: string }>; expires: number }
 const prefetchCache = new Map<string, PrefetchEntry>()
@@ -220,7 +220,7 @@ const morphNodes = (old: Element, next: Element): void => {
 // gate false so the default swap never double-fires.
 const applyResponse = async (
   el: Element, cfg: HConfig, res: Response, html: string,
-  boost: boolean, isGet: boolean, tgtSel: string, url: string, gate: boolean,
+  autoPush: boolean, tgtSel: string, selDefault: string, url: string, gate: boolean,
 ): Promise<void> => {
   const H = (n: string) => res.headers.get(n)
   // H-Trigger fires on receive (pre-swap, htmx parity); H-Trigger-After-Swap
@@ -232,7 +232,7 @@ const applyResponse = async (
   // The response may override the client's pre-declared placement/selection,
   // so the requesting element needn't carry out-of-band layout knowledge.
   const reSelect = H('H-Reselect')
-  const selSel = reSelect ?? (attr(el, 'h-select') || (boost ? 'body' : ''))
+  const selSel = reSelect ?? selDefault
   if (selSel) html = selectFragment(html, selSel)
   const reTarget = H('H-Retarget')
   if (reTarget) { const t = $(reTarget); if (t) cfg.target = t }
@@ -257,7 +257,7 @@ const applyResponse = async (
   let taken = false
   const detail: BeforeSwapDetail = {
     cfg, response: res, html,
-    swap: (h, r = res, u = url) => (taken = true, applyResponse(el, cfg, r, h, boost, isGet, tgtSel, u, false)),
+    swap: (h, r = res, u = url) => (taken = true, applyResponse(el, cfg, r, h, autoPush, tgtSel, selDefault, u, false)),
   }
   if (gate && (!emit(el, 'before-swap', detail) || taken)) return
 
@@ -283,12 +283,12 @@ const applyResponse = async (
   if (focusSel) ($(focusSel) as HTMLElement | null)?.focus?.()
 
   // URL changes: server headers (H-Push-Url / H-Replace-Url) win over
-  // attributes; boosted GET navigation pushes by default. A header value
-  // of "false" suppresses; any other value is the URL to write.
+  // attributes; a genuine boosted GET navigation pushes by default (see autoPush).
+  // A header value of "false" suppresses; any other value is the URL to write.
   const pushAttr = el.getAttribute('h-push-url'), replAttr = el.getAttribute('h-replace-url')
   const pushHdr = H('H-Push-Url'), replHdr = H('H-Replace-Url')
   let pushUrl: string | null = pushHdr ? (pushHdr === 'false' ? null : pushHdr)
-    : (pushAttr === 'false' ? null : (pushAttr !== null || (boost && isGet)) ? url : null)
+    : (pushAttr === 'false' ? null : (pushAttr !== null || autoPush) ? url : null)
   let replUrl: string | null = replHdr ? (replHdr === 'false' ? null : replHdr)
     : (replAttr === 'false' ? null : replAttr !== null ? url : null)
   if (pushUrl || replUrl) {
@@ -359,9 +359,16 @@ const init = (el: Element): void => {
     if (controller) st.abort = controller
 
     const form = el instanceof HTMLFormElement ? el : null
+    // A submit button overrides the form's request config (native formaction/
+    // formmethod and h-* attributes), falling back to the form when it doesn't
+    // carry the attribute. Reads via src() pick the submitter then the form.
+    const submitter = form && evt instanceof SubmitEvent && evt.submitter instanceof HTMLElement
+      ? evt.submitter : null
+    const src = (name: string, fallback = ''): string =>
+      (submitter?.hasAttribute(name) ? submitter.getAttribute(name) : el.getAttribute(name)) ?? fallback
     let body = form ? new FormData(form) : null
-    if (form && evt instanceof SubmitEvent && evt.submitter?.hasAttribute('name'))
-      body!.append(evt.submitter.getAttribute('name')!, (evt.submitter as HTMLButtonElement).value)
+    if (submitter?.hasAttribute('name'))
+      body!.append(submitter.getAttribute('name')!, (submitter as HTMLButtonElement).value)
     const incSel = attr(el, 'h-include')
     if (incSel) {
       if (!body) body = new FormData()
@@ -373,17 +380,54 @@ const init = (el: Element): void => {
     // Boosted controls upgrade plain links/forms to whole-page partial navigation:
     // default to replacing <body>'s contents, matching a full page load JS-off.
     const boost = boosted(el)
-    const tgtSel = attr(el, 'h-target') || (boost ? 'body' : '')
+    const tgtSel = src('h-target') || (boost ? 'body' : '')
     const target = tgtSel ? $(tgtSel) ?? el : el
-    const swap = attr(el, 'h-swap', 'inner') as SwapStrategy
-    const hdrAttr = attr(el, 'h-headers')
+    const swap = src('h-swap', 'inner') as SwapStrategy
+    const selDefault = src('h-select') || (boost ? 'body' : '')
+    const hdrAttr = src('h-headers')
     let headers = hdrs(tgtSel)
     if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
-    const isGet = methodInfo.method === 'GET'
+
+    // h-selection: send a field's caret as H-Selection-Start/End so the server can
+    // detect the active token exactly (value.slice(0, start)) instead of assuming
+    // it's at the end of the value, which is wrong when editing mid-text. Absent =>
+    // off; "" => the requesting element itself; a selector => that field.
+    const selnAttr = el.getAttribute('h-selection')
+    if (selnAttr !== null) {
+      const field = selnAttr ? $(selnAttr) : el
+      if ((field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && field.selectionStart != null) {
+        headers['H-Selection-Start'] = String(field.selectionStart)
+        headers['H-Selection-End'] = String(field.selectionEnd ?? field.selectionStart)
+      }
+    }
+
+    // Resolve the request line, letting the submitter override the form: native
+    // formaction/formmethod first (standard HTML), then h-* method attributes.
+    let { method, action } = methodInfo
+    if (submitter) {
+      const fa = submitter.getAttribute('formaction')
+      if (fa) action = fa
+      const fm = submitter.getAttribute('formmethod')
+      if (fm) method = fm.toUpperCase() === 'POST' ? 'POST' : 'GET'
+      if (submitter.hasAttribute('h-get')) {
+        method = 'GET'
+        const u = submitter.getAttribute('h-get'); if (u) action = u
+      } else for (const m of ['post', 'put', 'patch', 'delete'] as const)
+        if (submitter.hasAttribute(`h-${m}`)) { method = m.toUpperCase() as HttpMethod; break }
+    }
+    const isGet = method === 'GET'
+
+    // Auto-push the URL only for a genuine boosted navigation: the trigger is the
+    // element's default interaction (a click/submit, not every/load/intersect or
+    // a custom/from: event) AND the swap targets the boost default (the whole
+    // body), not a sub-region. In-place GET loaders (pollers, lazy hydration,
+    // infinite-scroll sentinels, region updates) must not rewrite the address bar
+    // and break reload; authors force history either way with h-push-url.
+    const autoPush = boost && isGet && evt.type === defaultTrigger && tgtSel === 'body'
 
     const cfg: HConfig = {
-      trigger: evt, action: methodInfo.action, method: methodInfo.method,
-      target, swap, body: isGet || methodInfo.method === 'DELETE' ? null : body, headers
+      trigger: evt, action, method,
+      target, swap, body: isGet || method === 'DELETE' ? null : body, headers
     }
 
     evt.preventDefault()
@@ -447,7 +491,7 @@ const init = (el: Element): void => {
       // Hand off to the shared "apply response" pipeline (gate true emits the
       // cancelable h:before-swap; a canceled listener can re-enter via
       // detail.swap). H-Trigger fires inside on receive, before the swap.
-      await applyResponse(el, cfg, res, html, boost, isGet, tgtSel, url, true)
+      await applyResponse(el, cfg, res, html, autoPush, tgtSel, selDefault, url, true)
     } catch (error) {
       if ((error as Error).name === 'AbortError') return
       emit(el, 'error', { cfg, error })
@@ -470,7 +514,7 @@ const init = (el: Element): void => {
 
     if (event === 'intersect') {
       const threshold = parseFloat(mods.get('threshold') ?? '0')
-      const rootMargin = mods.get('rootMargin') ?? '0px'
+      const rootMargin = mods.get('root-margin') ?? '0px'
       const obs = new IntersectionObserver((entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
@@ -556,16 +600,86 @@ const initPrefetch = (el: Element): void => {
   }
 }
 
+// Client-side text insertion: the one swap-less primitive, since caret editing
+// can't be expressed as a DOM swap. On click, splice h-insert's text into the
+// h-insert-target input/textarea at the live caret, optionally replacing a
+// trailing token (h-insert-replace, a regex matched against the value up to the
+// caret), then restore caret + focus and fire a bubbling `input` so anything
+// bound to the field re-runs (preview, validity, an h-trigger="input" suggest
+// request, which now sees no active token and closes its dropdown).
+const initInsert = (el: Element): void => {
+  const st = state(el)
+  if (st.insert || ignore(el)) return
+  st.insert = true
+  el.addEventListener('click', (evt) => {
+    const sel = attr(el, 'h-insert-target')
+    const tgt = sel ? $(sel) : null
+    if (!(tgt instanceof HTMLInputElement || tgt instanceof HTMLTextAreaElement)) return
+    evt.preventDefault()
+    const text = attr(el, 'h-insert'), val = tgt.value
+    const caret = tgt.selectionStart ?? val.length, end = tgt.selectionEnd ?? caret
+    // Plain insert replaces any selection at [caret, end); replace mode extends
+    // the start back to the regex match (its match is anchored to the caret).
+    let from = caret
+    const reSrc = el.getAttribute('h-insert-replace')
+    if (reSrc) try { const m = new RegExp(reSrc).exec(val.slice(0, caret)); if (m) from = m.index } catch {}
+    tgt.value = val.slice(0, from) + text + val.slice(end)
+    const pos = from + text.length
+    try { tgt.setSelectionRange(pos, pos) } catch {}
+    tgt.focus()
+    tgt.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+// Keyboard navigation for a suggestion dropdown (the combobox half of typeahead).
+// h-combobox on the field points at the popup container; its `[role=option]`
+// children are the items (server-rendered, so they re-render freely). The active
+// item lives in the DOM as the `h-active` class, so this stays stateless across
+// re-renders: a fresh dropdown starts with nothing active (or the server can
+// pre-highlight one by rendering it with class="h-active"). Arrow keys move the
+// highlight, Enter clicks the active item (firing its h-insert), Escape closes.
+// Keys are only intercepted while the popup has options, so an empty/closed
+// dropdown leaves normal caret movement and Enter (newline/submit) untouched.
+const initCombobox = (el: Element): void => {
+  const st = state(el)
+  if (st.combobox || ignore(el)) return
+  st.combobox = true
+  const setActive = (opts: Element[], i: number) => {
+    el.removeAttribute('aria-activedescendant')
+    opts.forEach((o, j) => {
+      const on = j === i
+      o.classList.toggle('h-active', on)
+      o.setAttribute('aria-selected', String(on))
+      if (on) { o.scrollIntoView?.({ block: 'nearest' }); if (o.id) el.setAttribute('aria-activedescendant', o.id) }
+    })
+  }
+  el.addEventListener('keydown', (evt) => {
+    const e = evt as KeyboardEvent
+    const sel = attr(el, 'h-combobox')
+    const popup = sel ? $(sel) : null
+    if (!popup) return
+    const opts = [...popup.querySelectorAll('[role="option"]')]
+    if (e.key === 'Escape') { if (!opts.length) return; popup.innerHTML = ''; el.removeAttribute('aria-activedescendant'); e.preventDefault(); return }
+    if (!opts.length) return
+    const idx = opts.findIndex(o => o.classList.contains('h-active')), last = opts.length - 1
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(opts, idx < 0 || idx === last ? 0 : idx + 1) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(opts, idx <= 0 ? last : idx - 1) }
+    else if (e.key === 'Enter' && idx >= 0) { e.preventDefault(); (opts[idx] as HTMLElement).click() }
+  })
+}
+
 const initEl = (el: Element): void => {
   if (findMethod(el)) init(el)
   if (has(el, 'h-sse')) initSSE(el)
   if (has(el, 'h-prefetch')) initPrefetch(el)
+  if (has(el, 'h-insert')) initInsert(el)
+  if (has(el, 'h-combobox')) initCombobox(el)
 }
 
 const process = (node: Node): void => {
   if (!(node instanceof Element) || ignore(node)) return
   initEl(node)
-  node.querySelectorAll('[h-get], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-prefetch]').forEach(initEl)
+  node.querySelectorAll('[h-get], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-prefetch], [h-insert], [h-combobox]').forEach(initEl)
   // Boosted plain controls: upgrade native <a href>/<form action> with no h-* attrs.
   if (node.closest('[h-boost]')) node.querySelectorAll('a[href], form[action]').forEach(initEl)
   node.querySelectorAll('[h-boost] a[href], [h-boost] form[action]').forEach(initEl)

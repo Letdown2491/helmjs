@@ -4,6 +4,7 @@ import { reset, mount, setRouter, captured, tick, $, window } from './harness.mj
 
 const click = (el) => el.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))
 const submit = (form) => form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+const submitBy = (form, submitter) => form.dispatchEvent(new window.SubmitEvent('submit', { submitter, bubbles: true, cancelable: true }))
 
 beforeEach(() => { reset(); setRouter(() => ({ body: '' })) })
 
@@ -582,6 +583,48 @@ test('boost: opt-out with h-boost="false" on descendant', async () => {
   assert.equal(captured.fetches.length, 0)
 })
 
+// Auto-push only fires for genuine boosted navigations: the trigger is the
+// element's default interaction AND the swap targets the boost default (body).
+// In-place / background GET loaders must not rewrite the address bar.
+
+const fireEvent = (el, type) => el.dispatchEvent(new window.CustomEvent(type, { bubbles: true, cancelable: true }))
+
+test('boost: non-default trigger (poller-style) does NOT auto push-url', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  // Custom-event trigger stands in for every/load/intersect: not a navigation.
+  mount('<div h-boost><span id="p" h-get="/feed/new" h-trigger="refresh"></span></div>')
+  fireEvent($('#p'), 'refresh')
+  await tick(10)
+  assert.equal(captured.fetches.length, 1)
+  assert.equal(captured.pushed.length, 0)
+})
+
+test('boost: explicit sub-region target does NOT auto push-url', async () => {
+  setRouter(() => ({ body: '<p>added</p>' }))
+  mount('<div h-boost><button id="b" h-get="/rows/new" h-target="#region" h-swap="append">Add</button></div><div id="region"></div>')
+  click($('#b'))
+  await tick(10)
+  assert.equal($('#region').innerHTML, '<p>added</p>')
+  assert.equal(captured.pushed.length, 0)
+})
+
+test('boost: default trigger targeting the body still auto pushes', async () => {
+  setRouter(() => ({ body: '<p>page</p>' }))
+  // No h-target, so it falls back to the boost default (body): a navigation.
+  mount('<div h-boost><button id="b" h-get="/next">Next</button></div>')
+  click($('#b'))
+  await tick(10)
+  assert.equal(captured.pushed.at(-1).url, '/next')
+})
+
+test('boost: h-push-url forces history even for a non-navigation trigger', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  mount('<div h-boost><span id="p" h-get="/feed/new" h-trigger="refresh" h-push-url h-target="#out"></span></div><div id="out"></div>')
+  fireEvent($('#p'), 'refresh')
+  await tick(10)
+  assert.equal(captured.pushed.at(-1).url, '/feed/new')
+})
+
 // ---------------------------------------------------------------------------
 // Stateless history: back/forward re-derives view state from the server.
 // ---------------------------------------------------------------------------
@@ -594,6 +637,83 @@ test('history: popstate re-fetches from the server, not a client cache', async (
   await tick(10)
   assert.equal(captured.fetches.at(-1)?.url, '/page/about')
   assert.equal($('#out').innerHTML, '<p>server</p>')
+})
+
+// ---------------------------------------------------------------------------
+// Submitter override: the clicked submit button overrides the form's request
+// config (native formaction/formmethod + h-* attrs), falling back to the form.
+// ---------------------------------------------------------------------------
+
+test('submitter: native formaction overrides the form action', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<form id="f" action="/save" method="post" h-post h-target="#out"><button id="b" formaction="/delete">Delete</button></form><div id="out"></div>')
+  submitBy($('#f'), $('#b'))
+  await tick(10)
+  assert.equal(captured.fetches.at(-1).url, '/delete')
+  assert.equal(captured.fetches.at(-1).method, 'POST')
+})
+
+test('submitter: native formmethod overrides the form method', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-target="#out"><input name="q" value="hi"><button id="b" formmethod="get">Search</button></form><div id="out"></div>')
+  submitBy($('#f'), $('#b'))
+  await tick(10)
+  // GET serializes the form into the query string and sends no body.
+  assert.equal(captured.fetches.at(-1).method, 'GET')
+  assert.ok(captured.fetches.at(-1).url.startsWith('/x?q=hi'), captured.fetches.at(-1).url)
+})
+
+test('submitter: h-* method attr on the button overrides the form', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-target="#out"><button id="b" h-delete>Remove</button></form><div id="out"></div>')
+  submitBy($('#f'), $('#b'))
+  await tick(10)
+  assert.equal(captured.fetches.at(-1).method, 'DELETE')
+})
+
+test('submitter: h-get value on the button is the URL and forces GET', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-target="#out"><button id="b" h-get="/peek">Peek</button></form><div id="out"></div>')
+  submitBy($('#f'), $('#b'))
+  await tick(10)
+  assert.equal(captured.fetches.at(-1).method, 'GET')
+  assert.ok(captured.fetches.at(-1).url.startsWith('/peek'), captured.fetches.at(-1).url)
+})
+
+test('submitter: h-target / h-swap on the button override the form', async () => {
+  setRouter(() => ({ body: '<p>via-button</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-target="#out" h-swap="inner"><button id="b" h-target="#alt" h-swap="append">Go</button></form><div id="out"></div><div id="alt"><span>x</span></div>')
+  submitBy($('#f'), $('#b'))
+  await tick(10)
+  assert.equal($('#out').innerHTML, '')
+  assert.equal($('#alt').innerHTML, '<span>x</span><p>via-button</p>')
+  assert.equal(captured.fetches.at(-1).headers['H-Target'], '#alt')
+})
+
+test('submitter: h-select on the button selects from the response', async () => {
+  setRouter(() => ({ body: '<div id="frag"><b>pick-me</b></div><p>ignore</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-target="#out"><button id="b" h-select="#frag">Go</button></form><div id="out"></div>')
+  submitBy($('#f'), $('#b'))
+  await tick(10)
+  assert.equal($('#out').innerHTML, '<b>pick-me</b>')
+})
+
+test('submitter: h-headers on the button override the form headers', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-target="#out" h-headers=\'{"X-From":"form"}\'><button id="b" h-headers=\'{"X-From":"button"}\'>Go</button></form><div id="out"></div>')
+  submitBy($('#f'), $('#b'))
+  await tick(10)
+  assert.equal(captured.fetches.at(-1).headers['X-From'], 'button')
+})
+
+test('submitter: button without overrides falls back to the form config', async () => {
+  setRouter(() => ({ body: '<p>form-wins</p>' }))
+  mount('<form id="f" action="/x" method="post" h-post h-target="#out" h-swap="inner"><button id="b">Go</button></form><div id="out"></div>')
+  submitBy($('#f'), $('#b'))
+  await tick(10)
+  assert.equal(captured.fetches.at(-1).url, '/x')
+  assert.equal(captured.fetches.at(-1).method, 'POST')
+  assert.equal($('#out').innerHTML, '<p>form-wins</p>')
 })
 
 // ---------------------------------------------------------------------------
@@ -615,4 +735,194 @@ test('newly swapped-in controls are automatically activated', async () => {
   click(b)
   await tick(20)
   assert.equal($('#out').innerHTML, '<p>step2</p>')
+})
+
+// ---------------------------------------------------------------------------
+// h-insert: client-side text insertion into an input/textarea at the caret.
+// The one swap-less primitive (caret editing isn't a DOM swap).
+// ---------------------------------------------------------------------------
+
+const setCaret = (el, start, end = start) => { el.focus(); el.setSelectionRange(start, end) }
+
+test('insert: plain insert splices text at the caret and places it after', () => {
+  mount('<textarea id="t">hello world</textarea><button id="b" h-insert="X" h-insert-target="#t">go</button>')
+  setCaret($('#t'), 5)
+  click($('#b'))
+  assert.equal($('#t').value, 'helloX world')
+  assert.equal($('#t').selectionStart, 6)
+})
+
+test('insert: plain insert replaces the active selection', () => {
+  mount('<input id="t" value="abcdef"><button id="b" h-insert="-" h-insert-target="#t">go</button>')
+  setCaret($('#t'), 1, 4) // select "bcd"
+  click($('#b'))
+  assert.equal($('#t').value, 'a-ef')
+})
+
+test('insert: replace mode swaps the trailing token (mention typeahead)', () => {
+  mount('<textarea id="t">hi @al</textarea><button id="b" h-insert="nostr:npub1 " h-insert-target="#t" h-insert-replace="[@:]\\S*$">@alice</button>')
+  setCaret($('#t'), 6)
+  click($('#b'))
+  assert.equal($('#t').value, 'hi nostr:npub1 ')
+  assert.equal($('#t').selectionStart, 'hi nostr:npub1 '.length)
+})
+
+test('insert: replace mode is anchored to the caret, editing mid-text', () => {
+  mount('<textarea id="t">a @al b</textarea><button id="b" h-insert="X" h-insert-target="#t" h-insert-replace="[@:]\\S*$">x</button>')
+  setCaret($('#t'), 5) // caret right after "@al", before " b"
+  click($('#b'))
+  assert.equal($('#t').value, 'a X b')
+})
+
+test('insert: fires a bubbling input event so bound behavior re-runs', () => {
+  mount('<textarea id="t">@al</textarea><button id="b" h-insert="done " h-insert-target="#t">go</button>')
+  setCaret($('#t'), 3)
+  let fired = 0
+  $('#t').addEventListener('input', () => fired++)
+  click($('#b'))
+  assert.equal(fired, 1)
+})
+
+test('insert: the dispatched input re-fires the field\'s own h-trigger="input"', async () => {
+  setRouter(() => ({ body: '' }))
+  // The textarea asks the server for matches on input; picking a suggestion edits
+  // it and the synthetic input event drives a fresh suggest request (now empty).
+  mount('<textarea id="t" h-get="/suggest" h-trigger="input" h-target="#box">@al</textarea><button id="b" h-insert="nostr:npub1 " h-insert-target="#t" h-insert-replace="[@:]\\S*$">pick</button><div id="box"></div>')
+  setCaret($('#t'), 3)
+  click($('#b'))
+  await tick(10)
+  assert.equal($('#t').value, 'nostr:npub1 ')
+  assert.ok(captured.fetches.some((f) => f.url.startsWith('/suggest')), 'pick re-ran the suggest request')
+})
+
+test('insert: a suggestion swapped into the page is live', async () => {
+  setRouter(() => ({ body: '<button id="pick" h-insert="nostr:npub1 " h-insert-target="#t" h-insert-replace="[@:]\\S*$">@alice</button>' }))
+  mount('<textarea id="t">hi @al</textarea><a id="s" href="/suggest" h-get h-target="#box" h-swap="inner">x</a><div id="box"></div>')
+  setCaret($('#t'), 6)
+  click($('#s'))
+  await tick(20)
+  const pick = $('#pick')
+  assert.ok(pick, 'suggestion is in the DOM')
+  click(pick)
+  assert.equal($('#t').value, 'hi nostr:npub1 ')
+})
+
+test('insert: no-op (no throw, no change) when the target is missing', () => {
+  mount('<textarea id="t">keep</textarea><button id="b" h-insert="X" h-insert-target="#nope">go</button>')
+  setCaret($('#t'), 2)
+  click($('#b'))
+  assert.equal($('#t').value, 'keep')
+})
+
+// ---------------------------------------------------------------------------
+// h-selection: opt in to sending the field's caret as request headers so the
+// server can detect the active token exactly, even mid-text.
+// ---------------------------------------------------------------------------
+
+test('selection: h-selection sends the requesting field\'s caret as headers', async () => {
+  setRouter(() => ({ body: '' }))
+  mount('<textarea id="t" h-get="/suggest" h-trigger="input" h-target="#box" h-selection>a @al b</textarea><div id="box"></div>')
+  setCaret($('#t'), 5) // caret right after "@al"
+  $('#t').dispatchEvent(new window.Event('input', { bubbles: true }))
+  await tick(10)
+  const h = captured.fetches.at(-1).headers
+  assert.equal(h['H-Selection-Start'], '5')
+  assert.equal(h['H-Selection-End'], '5')
+})
+
+test('selection: a selector value reads the caret from another field', async () => {
+  setRouter(() => ({ body: '' }))
+  mount('<textarea id="c">hello</textarea><a id="a" href="/suggest" h-get h-target="#box" h-selection="#c">go</a><div id="box"></div>')
+  setCaret($('#c'), 1, 4) // selection "ell"
+  click($('#a'))
+  await tick(10)
+  const h = captured.fetches.at(-1).headers
+  assert.equal(h['H-Selection-Start'], '1')
+  assert.equal(h['H-Selection-End'], '4')
+})
+
+test('selection: absent h-selection sends no caret headers', async () => {
+  setRouter(() => ({ body: '' }))
+  mount('<textarea id="t" h-get="/suggest" h-trigger="input" h-target="#box">a @al</textarea><div id="box"></div>')
+  setCaret($('#t'), 5)
+  $('#t').dispatchEvent(new window.Event('input', { bubbles: true }))
+  await tick(10)
+  const h = captured.fetches.at(-1).headers
+  assert.equal(h['H-Selection-Start'], undefined)
+  assert.equal(h['H-Selection-End'], undefined)
+})
+
+// ---------------------------------------------------------------------------
+// h-combobox: arrow/Enter/Escape keyboard navigation of a suggestion dropdown.
+// Active item is the `h-active` class in the DOM, so it's stateless across the
+// server re-rendering the list.
+// ---------------------------------------------------------------------------
+
+const keydown = (el, key) => {
+  const e = new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+  el.dispatchEvent(e)
+  return e
+}
+const opts = () => [...$('#box').querySelectorAll('[role="option"]')]
+const activeIdx = () => opts().findIndex((o) => o.classList.contains('h-active'))
+const POPUP = '<button role="option">a</button><button role="option">b</button><button role="option">c</button>'
+
+test('combobox: ArrowDown highlights the first option, then advances', () => {
+  mount('<input id="t" h-combobox="#box"><div id="box">' + POPUP + '</div>')
+  keydown($('#t'), 'ArrowDown')
+  assert.equal(activeIdx(), 0)
+  keydown($('#t'), 'ArrowDown')
+  assert.equal(activeIdx(), 1)
+})
+
+test('combobox: ArrowDown wraps from the last option to the first', () => {
+  mount('<input id="t" h-combobox="#box"><div id="box">' + POPUP + '</div>')
+  keydown($('#t'), 'ArrowDown'); keydown($('#t'), 'ArrowDown'); keydown($('#t'), 'ArrowDown') // 0,1,2
+  assert.equal(activeIdx(), 2)
+  keydown($('#t'), 'ArrowDown')
+  assert.equal(activeIdx(), 0)
+})
+
+test('combobox: ArrowUp from nothing active selects the last option', () => {
+  mount('<input id="t" h-combobox="#box"><div id="box">' + POPUP + '</div>')
+  keydown($('#t'), 'ArrowUp')
+  assert.equal(activeIdx(), 2)
+})
+
+test('combobox: arrow keys set aria-selected and aria-activedescendant', () => {
+  mount('<input id="t" h-combobox="#box"><div id="box"><button id="o0" role="option">a</button><button id="o1" role="option">b</button></div>')
+  keydown($('#t'), 'ArrowDown')
+  assert.equal($('#o0').getAttribute('aria-selected'), 'true')
+  assert.equal($('#o1').getAttribute('aria-selected'), 'false')
+  assert.equal($('#t').getAttribute('aria-activedescendant'), 'o0')
+})
+
+test('combobox: Enter clicks the active option (driving h-insert)', () => {
+  mount('<textarea id="c">hi @al</textarea><input id="t" h-combobox="#box"><div id="box"><button role="option" h-insert="nostr:npub1 " h-insert-target="#c" h-insert-replace="[@:]\\S*$">@alice</button></div>')
+  setCaret($('#c'), 6)
+  keydown($('#t'), 'ArrowDown')
+  keydown($('#t'), 'Enter')
+  assert.equal($('#c').value, 'hi nostr:npub1 ')
+})
+
+test('combobox: Escape closes the dropdown', () => {
+  mount('<input id="t" h-combobox="#box"><div id="box">' + POPUP + '</div>')
+  const e = keydown($('#t'), 'Escape')
+  assert.equal($('#box').innerHTML, '')
+  assert.equal(e.defaultPrevented, true)
+})
+
+test('combobox: keys pass through when the dropdown is empty', () => {
+  mount('<input id="t" h-combobox="#box"><div id="box"></div>')
+  const down = keydown($('#t'), 'ArrowDown')
+  const esc = keydown($('#t'), 'Escape')
+  assert.equal(down.defaultPrevented, false)
+  assert.equal(esc.defaultPrevented, false)
+})
+
+test('combobox: a server-rendered h-active option makes Enter pick it immediately', () => {
+  mount('<textarea id="c">hi @al</textarea><input id="t" h-combobox="#box"><div id="box"><button role="option" class="h-active" h-insert="X " h-insert-target="#c" h-insert-replace="[@:]\\S*$">@alice</button></div>')
+  setCaret($('#c'), 6)
+  keydown($('#t'), 'Enter') // no arrow first
+  assert.equal($('#c').value, 'hi X ')
 })
