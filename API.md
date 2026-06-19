@@ -547,7 +547,7 @@ then hand replacement content back to HelmJS so the **normal swap pipeline** sti
 runs on it (placement headers, OOB, view transitions, `h:swapped`, scroll/focus,
 push/replace URL). This avoids hand-rolling a swap and losing those behaviors.
 
-The seam is `e.detail.swap(html, response?)`:
+The seam is `e.detail.swap(html, response?, url?)`:
 
 ```javascript
 document.addEventListener('h:before-swap', (e) => {
@@ -560,8 +560,10 @@ document.addEventListener('h:before-swap', (e) => {
 ```
 
 - **Call `preventDefault()`.** A listener that calls `swap()` is taking over;
-  `preventDefault()` is what stops the default swap from also running (no
-  double-swap). The default swap stays gated on the event not being canceled.
+  `preventDefault()` is the idiomatic way to stop the default swap from also
+  running. As a safety net, invoking `swap()` is itself self-correcting: it
+  suppresses the default swap even if you forget `preventDefault()`, so the two
+  can't both run (no double-swap).
 - **`html`** is placed exactly as a normal response would be: into `cfg.target`
   with `cfg.swap`, inside the View Transition wrapper when available, followed by
   `h:swapped` and the usual scroll/focus/history effects.
@@ -570,6 +572,11 @@ document.addEventListener('h:before-swap', (e) => {
   `H-Trigger`/`H-Trigger-After-Swap`. Pass a `Response` (or any object with a
   `headers.get(name)` method) when your async step fetched a follow-up response.
   Omit it to reuse the **original** response's headers.
+- **`url`** (optional) overrides the URL used for the automatic push/replace
+  default (a boosted GET pushes by default). It only matters when your async
+  step navigated to a different URL and you rely on auto-push; an explicit
+  `H-Push-Url`/`H-Replace-Url` header still wins. Omit it to reuse the original
+  request URL.
 - Returns a `Promise` that resolves once the swap (including any view
   transition) completes, so you can `await` it.
 

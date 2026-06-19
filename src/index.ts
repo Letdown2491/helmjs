@@ -21,7 +21,7 @@ interface BeforeSwapDetail {
   cfg: HConfig
   response: Response
   html: string
-  swap: (html: string, response?: Response) => Promise<void>
+  swap: (html: string, response?: Response, url?: string) => Promise<void>
 }
 
 interface HState {
@@ -250,12 +250,16 @@ const applyResponse = async (
     return
   }
   // The seam: bind a closure over (el, cfg) and re-enter with gate false so a
-  // listener can defer the swap. Omitting the response reuses the original's.
+  // listener can defer the swap. Omitting the response reuses the original's;
+  // an optional url overrides the auto push/replace URL default. `taken` makes
+  // it self-correcting: invoking swap suppresses the default swap even if the
+  // listener forgot preventDefault(), so the two can't both run (no double-swap).
+  let taken = false
   const detail: BeforeSwapDetail = {
     cfg, response: res, html,
-    swap: (h, r = res) => applyResponse(el, cfg, r, h, boost, isGet, tgtSel, url, false),
+    swap: (h, r = res, u = url) => (taken = true, applyResponse(el, cfg, r, h, boost, isGet, tgtSel, u, false)),
   }
-  if (gate && !emit(el, 'before-swap', detail)) return
+  if (gate && (!emit(el, 'before-swap', detail) || taken)) return
 
   html = processOOB(html)
   const scrollAttr = attr(el, 'h-scroll')

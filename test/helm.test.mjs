@@ -447,6 +447,37 @@ test('before-swap seam: detail.swap without a response reuses the original heade
   assert.equal($('#other').innerHTML, '<p>transformed</p>')
 })
 
+test('before-swap seam: detail.swap suppresses the default swap even without preventDefault', async () => {
+  // Contract violation: listener calls swap() but forgets preventDefault().
+  // The one-shot guard must still prevent the default swap from also running.
+  setRouter(() => ({ body: '<p>original</p>' }))
+  let swaps = 0
+  const onSwapped = () => { swaps++ }
+  const onBeforeSwap = (e) => { e.detail.swap('<p>taken</p>') } // no preventDefault()
+  window.document.addEventListener('h:swapped', onSwapped)
+  window.document.addEventListener('h:before-swap', onBeforeSwap)
+  mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">Go</a><div id="out"></div>')
+  click($('#a'))
+  await tick(20)
+  window.document.removeEventListener('h:swapped', onSwapped)
+  window.document.removeEventListener('h:before-swap', onBeforeSwap)
+  // Exactly one swap ran, and it was the re-entry's content (not the original).
+  assert.equal(swaps, 1)
+  assert.equal($('#out').innerHTML, '<p>taken</p>')
+})
+
+test('before-swap seam: detail.swap url override drives the boosted auto push-url', async () => {
+  setRouter(() => ({ body: '<html><body><h1>Cont</h1></body></html>' }))
+  const onBeforeSwap = (e) => { e.preventDefault(); e.detail.swap('<h1>Cont</h1>', undefined, '/continuation') }
+  window.document.addEventListener('h:before-swap', onBeforeSwap)
+  // Boosted GET auto-pushes; the override should set the pushed URL.
+  mount('<div h-boost><a id="a" href="/orig">Go</a></div>')
+  click($('#a'))
+  await tick(20)
+  window.document.removeEventListener('h:before-swap', onBeforeSwap)
+  assert.equal(captured.pushed.at(-1).url, '/continuation')
+})
+
 // ---------------------------------------------------------------------------
 // Polling via h-trigger="every Ns" + generalized h-get URL source.
 // ---------------------------------------------------------------------------
