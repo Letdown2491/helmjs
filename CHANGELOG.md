@@ -7,6 +7,21 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.10.0] - 2026-06-19
+
+### Added
+- **`h-optimistic` optimistic UI.** `h-optimistic="class:NAME"` toggles `NAME` on a
+  local element the instant the request is triggered, so an action control reflects
+  its new state without waiting a full round-trip. The element is resolved from
+  `h-optimistic-target` (selector), else the resolved swap target, else the triggering
+  element. The normal response swap reconciles the guess (server truth wins; if the
+  optimistic element *is* the swap target, the swap replaces it outright), and an
+  `h:error` reverts the class to its pre-toggle value. The class persists through a
+  deferred swap (e.g. a sign-and-resubmit `before-swap` seam) until its continuation
+  swaps or errors, so it never clears merely because a request finished without an
+  immediate swap. Enhancement-only: the zero-JS baseline is unchanged. Only the
+  `class:` op exists today; the value grammar is left open to extend.
+
 ## [0.9.0] - 2026-06-19
 
 ### Changed

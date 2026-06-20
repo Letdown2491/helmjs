@@ -150,6 +150,8 @@ intent (pick a fragment), different layer: the server dictating it from the resp
 | `h-indicator` | any | CSS selector for element(s) to receive `h-loading` class during request. |
 | `h-headers` | any | JSON object of custom headers to include in the request. |
 | `h-disable` | any | Control request-time disabling. Absent: auto-disable the form's submit controls during mutations. `h-disable` (present) or a value: disable on any method. `h-disable="false"`: opt out. `h-disable="<selector>"`: also disable the matched elements. |
+| `h-optimistic` | any | `class:<NAME>`: toggle `<NAME>` instantly on trigger so the UI reflects its new state before the round-trip. The response swap reconciles it (server truth wins; if the optimistic element *is* the swap target, the swap replaces it outright); an `h:error` reverts it. The class persists through a deferred swap (e.g. a sign-and-resubmit seam) until its continuation swaps or errors. Enhancement-only: the JS-off baseline is unchanged. |
+| `h-optimistic-target` | any | CSS selector for the element `h-optimistic` toggles. Default: the resolved swap target, else the triggering element. |
 | `h-prefetch` | `<a>` | Prefetch content on hover/focus. Value: `hover` (default), `intersect`, or with TTL: `hover 60s`. |
 | `h-include` | any | CSS selector for elements to include in the request. Their name/value pairs are serialized as query params (GET) or FormData (POST/PUT/PATCH). |
 | `h-ignore` | any | Skip HelmJS processing for this element and all descendants. |

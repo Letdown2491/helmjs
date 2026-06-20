@@ -1067,3 +1067,107 @@ test('view transition (opted in): a genuine swap-callback error still surfaces a
     })
   } finally { restore() }
 })
+
+// ---------------------------------------------------------------------------
+// h-optimistic: flip a local class instantly on trigger, let the response swap
+// reconcile it, revert on failure. Enhancement-only (zero-JS baseline unchanged).
+// ---------------------------------------------------------------------------
+
+test('optimistic: class flips instantly on trigger, then the outer-swap replaces the target with server truth', async () => {
+  setRouter(() => ({ body: '<div id="x">server</div>' }))
+  mount('<form id="f" action="/t" h-post h-target="#x" h-swap="outer" h-optimistic="class:active"><button>Go</button></form><div id="x">old</div>')
+  submit($('#f'))
+  // Synchronous (pre-fetch): the class is on the target before any round-trip.
+  assert.ok($('#x').classList.contains('active'), 'class applied instantly')
+  await tick(10)
+  // The authoritative fragment replaced the target; the optimistic class is gone.
+  assert.equal($('#x').textContent, 'server')
+  assert.equal($('#x').classList.contains('active'), false, 'server truth supersedes the guess')
+})
+
+test('optimistic: h-optimistic-target resolves a separate element; a non-target swap leaves the guess in place', async () => {
+  setRouter(() => ({ body: '<p>done</p>' }))
+  mount('<form id="f" action="/t" h-post h-target="#out" h-swap="inner" h-optimistic="class:on" h-optimistic-target="#flag"><button>Go</button></form><div id="out"></div><div id="flag"></div>')
+  submit($('#f'))
+  assert.ok($('#flag').classList.contains('on'), 'optimistic class on the named element')
+  await tick(10)
+  assert.equal($('#out').innerHTML, '<p>done</p>')
+  // The optimistic element was not the swap target, so its class stays (reconciled,
+  // trusting the guess); only the pending bookkeeping is cleared.
+  assert.ok($('#flag').classList.contains('on'))
+})
+
+test('optimistic: a thrown request reverts the class to its pre-toggle state', () =>
+  withErrors(async (errs) => {
+    setRouter(() => { throw new Error('network down') })
+    mount('<form id="f" action="/t" h-post h-target="#x" h-swap="outer" h-optimistic="class:active"><button>Go</button></form><div id="x">old</div>')
+    submit($('#f'))
+    assert.ok($('#x').classList.contains('active'), 'applied before the request fails')
+    await tick(10)
+    assert.equal(errs.length, 1, 'failure surfaced as h:error')
+    assert.equal($('#x').classList.contains('active'), false, 'reverted on h:error')
+  }))
+
+test('optimistic: a pre-existing class is restored (not removed) on revert', () =>
+  withErrors(async () => {
+    setRouter(() => { throw new Error('boom') })
+    mount('<form id="f" action="/t" h-post h-target="#x" h-swap="outer" h-optimistic="class:active"><button>Go</button></form><div id="x" class="active">old</div>')
+    submit($('#f'))
+    // Toggle removed it optimistically (already present)...
+    assert.equal($('#x').classList.contains('active'), false)
+    await tick(10)
+    // ...and revert restores it to the original `had: true` state.
+    assert.ok($('#x').classList.contains('active'), 'restored to pre-toggle value')
+  }))
+
+// Models the nip07 sign bridge: the response defers via a before-swap listener
+// (H-Reswap:none), the optimistic class must persist as the pending state, then
+// be superseded by the continuation's swap (approve) or reverted by h:error (reject).
+
+test('optimistic: persists through a deferred (sign) flow and is superseded by the continuation swap on approve', async () => {
+  setRouter(() => ({ headers: { 'H-Reswap': 'none' }, body: '<unsigned/>' }))
+  let detail = null
+  const onBeforeSwap = (e) => { e.preventDefault(); detail = e.detail }
+  window.document.addEventListener('h:before-swap', onBeforeSwap)
+  mount('<form id="f" action="/sign" h-post h-target="#x" h-swap="outer" h-optimistic="class:active"><button>Go</button></form><div id="x">old</div>')
+  submit($('#f'))
+  await tick(10)
+  // The deferral did not swap; the optimistic class persists as the pending state.
+  assert.ok($('#x').classList.contains('active'), 'persists through the extension prompt')
+
+  // Approve: the continuation hands back the signed, authoritative fragment.
+  const cont = {
+    status: 200, ok: true,
+    headers: { get: (n) => (n.toLowerCase() === 'h-reswap' ? 'outer' : null) },
+    text: async () => '<div id="x">signed</div>',
+  }
+  await detail.swap('<div id="x">signed</div>', cont)
+  window.document.removeEventListener('h:before-swap', onBeforeSwap)
+  assert.equal($('#x').textContent, 'signed')
+  assert.equal($('#x').classList.contains('active'), false, 'continuation swap supersedes the guess')
+})
+
+test('optimistic: a deferred (sign) flow that rejects reverts via h:error on the originating element', () =>
+  withErrors(async () => {
+    setRouter(() => ({ headers: { 'H-Reswap': 'none' }, body: '<unsigned/>' }))
+    const onBeforeSwap = (e) => { e.preventDefault() }
+    window.document.addEventListener('h:before-swap', onBeforeSwap)
+    mount('<form id="f" action="/sign" h-post h-target="#x" h-swap="outer" h-optimistic="class:active"><button>Go</button></form><div id="x">old</div>')
+    submit($('#f'))
+    await tick(10)
+    assert.ok($('#x').classList.contains('active'), 'pending while awaiting the signature')
+    // Reject: the sign bridge emits h:error on the originating element.
+    $('#f').dispatchEvent(new window.CustomEvent('h:error', { bubbles: true, cancelable: true, detail: { error: new Error('rejected') } }))
+    await tick(10)
+    window.document.removeEventListener('h:before-swap', onBeforeSwap)
+    assert.equal($('#x').classList.contains('active'), false, 'reverted on sign rejection')
+  }))
+
+test('optimistic: enhancement-only (no h-optimistic means no class churn)', async () => {
+  setRouter(() => ({ body: '<div id="x">server</div>' }))
+  mount('<form id="f" action="/t" h-post h-target="#x" h-swap="outer"><button>Go</button></form><div id="x" class="keep">old</div>')
+  submit($('#f'))
+  assert.ok($('#x').classList.contains('keep'))
+  await tick(10)
+  assert.equal($('#x').textContent, 'server')
+})

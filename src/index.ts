@@ -38,7 +38,7 @@ interface HState {
   title: string
 }
 
-interface ElState { init?: true; abort?: AbortController; sse?: EventSource; insert?: true; combobox?: true }
+interface ElState { init?: true; abort?: AbortController; sse?: EventSource; insert?: true; combobox?: true; opt?: { el: Element; cls: string; had: boolean } }
 
 interface PrefetchEntry { promise: Promise<{ response: Response; text: string }>; expires: number }
 const prefetchCache = new Map<string, PrefetchEntry>()
@@ -287,6 +287,14 @@ const applyResponse = async (
     await vt.updateCallbackDone
   } else doIt()
 
+  // Reconcile any pending h-optimistic state: the authoritative fragment is now
+  // swapped in (if the optimistic element WAS the target, it's been replaced
+  // outright), so drop the bookkeeping. We only get here on a real swap; a
+  // swap-less finish (the deferred sign flow) leaves it pending until its
+  // continuation re-enters here and reconciles, or h:error reverts.
+  const elOpt = elState.get(el)
+  if (elOpt?.opt) elOpt.opt = undefined
+
   emit(el, 'swapped', { cfg, response: res, html })
   if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg, response: res, html })
   if (trigAfter) fireTriggers(el, trigAfter)
@@ -472,6 +480,25 @@ const init = (el: Element): void => {
     const indSel = attr(el, 'h-indicator')
     const ind = indSel ? $(indSel) : null
     if (ind) ind.classList.add('h-loading')
+
+    // h-optimistic="class:NAME": flip a local class instantly so the control
+    // reflects its new state before the round-trip completes. The optimistic
+    // element is h-optimistic-target, else the resolved swap target, else el.
+    // Record the pre-toggle state so an h:error can revert; the normal response
+    // swap reconciles it (if it WAS the target, the swap replaces it outright).
+    // The pending state must survive a swap-less finish (the nip07 sign deferral)
+    // until its continuation swaps or errors, so only a real swap (reconcile) or
+    // h:error (revert) clears it. Only the class: op exists; grammar stays open.
+    const optSpec = el.getAttribute('h-optimistic')
+    if (optSpec?.startsWith('class:')) {
+      const cls = optSpec.slice(6)
+      const optSel = el.getAttribute('h-optimistic-target')
+      const optEl = (optSel ? $(optSel) : cfg.target) ?? el
+      if (cls) {
+        state(el).opt = { el: optEl, cls, had: optEl.classList.contains(cls) }
+        optEl.classList.toggle(cls)
+      }
+    }
 
     let url = cfg.action
     if (body && cfg.method === 'GET') {
@@ -723,6 +750,19 @@ const start = () => { observer.observe(document.documentElement, { childList: tr
 document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', start) : start()
 
 document.addEventListener('h:process', (e) => process(e.target as Node))
+
+// h-optimistic revert: an h:error on (or under) an element with pending
+// optimistic state rolls the class back to its pre-toggle value and clears the
+// state. helmjs's request catch emits h:error for network errors and 4xx/5xx,
+// and the nip07 sign bridge emits it on the originating element when signing is
+// rejected, so this one listener covers them all. A swap-less success (the
+// deferred sign flow) never fires h:error, so the class correctly persists.
+document.addEventListener('h:error', (e) => {
+  for (let n = e.target as Element | null; n; n = n.parentElement) {
+    const st = elState.get(n)
+    if (st?.opt) { st.opt.el.classList.toggle(st.opt.cls, st.opt.had); st.opt = undefined; return }
+  }
+})
 
 history.replaceState({ h: true, url: location.href, target: null, swap: 'inner', select: null, title: document.title } as HState, '')
 
