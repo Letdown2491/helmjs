@@ -61,6 +61,26 @@ const emit = (el: Element, type: string, detail: object = {}): boolean =>
 const fire = (el: Element, type: string, detail: unknown = {}): void =>
   void el.dispatchEvent(new CustomEvent(type, { detail, bubbles: true }))
 
+// data-h-busy: a reference-counted "helm is doing something" flag on <html>,
+// for site-wide loaders (progress bar, busy cursor, dimmed shell) in pure CSS
+// with no per-element plumbing. Counts overlapping requests so concurrent swaps
+// don't clear it early, toggling the attribute only on the 0<->1 edge and firing
+// document-level h:busy / h:idle there for JS reactors. Background triggers
+// (every/load/intersect) and prefetch are excluded (see the call sites) so
+// polling and lazy-loading don't flash the global loader.
+const BUSY_ATTR = 'data-h-busy'
+let busyCount = 0
+const setBusy = (delta: number): void => {
+  const was = busyCount > 0
+  busyCount = Math.max(0, busyCount + delta)
+  const now = busyCount > 0
+  if (was === now) return
+  const root = document.documentElement
+  if (now) root.setAttribute(BUSY_ATTR, '')
+  else root.removeAttribute(BUSY_ATTR)
+  fire(root, now ? 'h:busy' : 'h:idle')
+}
+
 const doScroll = (el: Element, scroll: string): void => {
   if (scroll === 'top') window.scrollTo({ top: 0, behavior: 'smooth' })
   else if (scroll === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
@@ -363,6 +383,11 @@ const findMethod = (el: Element): { method: HttpMethod; action: string } | null 
   return null
 }
 
+// Triggers that fire without a user gesture (polling, lazy hydration, scroll
+// sentinels). Their synthetic events carry these type names, which the busy
+// counter uses to keep background work out of the global data-h-busy flag.
+const BACKGROUND_TRIGGERS = new Set(['every', 'load', 'intersect'])
+
 const init = (el: Element): void => {
   if (state(el).init || ignore(el)) return
   const methodInfo = findMethod(el)
@@ -475,38 +500,52 @@ const init = (el: Element): void => {
       else disEls.push(el)
     }
     if (disVal && disVal !== 'false') disEls.push(...document.querySelectorAll(disVal))
-    toggleDisabled(disEls, true)
-
     const indSel = attr(el, 'h-indicator')
     const ind = indSel ? $(indSel) : null
-    if (ind) ind.classList.add('h-loading')
 
-    // h-optimistic="class:NAME": flip a local class instantly so the control
-    // reflects its new state before the round-trip completes. The optimistic
-    // element is h-optimistic-target, else the resolved swap target, else el.
-    // Record the pre-toggle state so an h:error can revert; the normal response
-    // swap reconciles it (if it WAS the target, the swap replaces it outright).
-    // The pending state must survive a swap-less finish (the nip07 sign deferral)
-    // until its continuation swaps or errors, so only a real swap (reconcile) or
-    // h:error (revert) clears it. Only the class: op exists; grammar stays open.
-    const optSpec = el.getAttribute('h-optimistic')
-    if (optSpec?.startsWith('class:')) {
-      const cls = optSpec.slice(6)
-      const optSel = el.getAttribute('h-optimistic-target')
-      const optEl = (optSel ? $(optSel) : cfg.target) ?? el
-      if (cls) {
-        state(el).opt = { el: optEl, cls, had: optEl.classList.contains(cls) }
-        optEl.classList.toggle(cls)
-      }
-    }
-
-    let url = cfg.action
-    if (body && cfg.method === 'GET') {
-      const p = new URLSearchParams(body as any)
-      if (p.toString()) url += (url.includes('?') ? '&' : '?') + p
-    }
+    // Decide whether this request feeds the global data-h-busy counter (the
+    // attribute is flipped inside the try below). Background triggers
+    // (every/load/intersect) and prefetch are quiet by default so they don't
+    // flash a site-wide loader; h-busy is the explicit override either way
+    // ("false" opts a foreground request out, "true" opts a background one in).
+    const busyAttr = el.getAttribute('h-busy')
+    const busy = busyAttr === 'false' ? false
+      : busyAttr === 'true' ? true
+      : !BACKGROUND_TRIGGERS.has(evt.type)
 
     try {
+      // Activate the in-flight affordances inside the try so that a throw during
+      // request setup (an invalid optimistic selector, query-string building)
+      // can't strand them: the finally below always pairs with these.
+      toggleDisabled(disEls, true)
+      if (ind) ind.classList.add('h-loading')
+      if (busy) setBusy(1)
+
+      // h-optimistic="class:NAME": flip a local class instantly so the control
+      // reflects its new state before the round-trip completes. The optimistic
+      // element is h-optimistic-target, else the resolved swap target, else el.
+      // Record the pre-toggle state so an h:error can revert; the normal response
+      // swap reconciles it (if it WAS the target, the swap replaces it outright).
+      // The pending state must survive a swap-less finish (the nip07 sign deferral)
+      // until its continuation swaps or errors, so only a real swap (reconcile) or
+      // h:error (revert) clears it. Only the class: op exists; grammar stays open.
+      const optSpec = el.getAttribute('h-optimistic')
+      if (optSpec?.startsWith('class:')) {
+        const cls = optSpec.slice(6)
+        const optSel = el.getAttribute('h-optimistic-target')
+        const optEl = (optSel ? $(optSel) : cfg.target) ?? el
+        if (cls) {
+          state(el).opt = { el: optEl, cls, had: optEl.classList.contains(cls) }
+          optEl.classList.toggle(cls)
+        }
+      }
+
+      let url = cfg.action
+      if (body && cfg.method === 'GET') {
+        const p = new URLSearchParams(body as any)
+        if (p.toString()) url += (url.includes('?') ? '&' : '?') + p
+      }
+
       let res: Response
       let html: string
       const cached = isGet ? prefetchCache.get(url) : null
@@ -549,6 +588,7 @@ const init = (el: Element): void => {
       if (controller) st.abort = undefined
       toggleDisabled(disEls, false)
       if (ind) ind.classList.remove('h-loading')
+      if (busy) setBusy(-1)
     }
   }
 
@@ -631,7 +671,10 @@ const initSSE = (el: Element): void => {
 const initPrefetch = (el: Element): void => {
   if (el.tagName !== 'A' || !has(el, 'h-get') || ignore(el)) return
   const url = el.getAttribute('href')
-  if (!url) return
+  // Prefetch only same-origin URLs: a speculative hover/scroll fetch should never
+  // fire a cross-origin GET (which can't be read back under CORS anyway, but would
+  // still hit a third party with the H-Request headers before the user commits).
+  if (!url || !sameOrigin(url)) return
 
   const val = attr(el, 'h-prefetch', 'hover')
   const parts = val.trim().split(/\s+/)

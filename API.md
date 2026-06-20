@@ -148,6 +148,7 @@ intent (pick a fragment), different layer: the server dictating it from the resp
 | `h-sync` | any | Request coordination: `abort` (cancel in-flight), `drop` (ignore if in-flight). |
 | `h-confirm` | any | Show a confirmation dialog with this message before sending the request. |
 | `h-indicator` | any | CSS selector for element(s) to receive `h-loading` class during request. |
+| `h-busy` | any | Override whether this element's requests feed the global `data-h-busy` flag on `<html>`. `h-busy="false"`: keep a foreground request out of it. `h-busy="true"`: opt a background trigger (`every`/`load`/`intersect`) in. Absent: foreground requests count, background ones don't. See [Global busy state](#global-busy-state-data-h-busy). |
 | `h-headers` | any | JSON object of custom headers to include in the request. |
 | `h-disable` | any | Control request-time disabling. Absent: auto-disable the form's submit controls during mutations. `h-disable` (present) or a value: disable on any method. `h-disable="false"`: opt out. `h-disable="<selector>"`: also disable the matched elements. |
 | `h-optimistic` | any | `class:<NAME>`: toggle `<NAME>` instantly on trigger so the UI reflects its new state before the round-trip. The response swap reconciles it (server truth wins; if the optimistic element *is* the swap target, the swap replaces it outright); an `h:error` reverts it. The class persists through a deferred swap (e.g. a sign-and-resubmit seam) until its continuation swaps or errors. Enhancement-only: the JS-off baseline is unchanged. |
@@ -453,6 +454,7 @@ h-prefetch="[trigger] [ttl]"
 
 - `hover` trigger also listens for `focus` events (keyboard accessibility)
 - Only works on `<a>` elements with `h-get`
+- **Same-origin only**: a cross-origin `href` is never speculatively fetched
 - Respects `h-target` and `h-headers` attributes
 - If user clicks while prefetch is in-flight, reuses the pending request
 - Cache entries are consumed on use (one prefetch per navigation)
@@ -652,6 +654,8 @@ HelmJS dispatches custom events throughout the request lifecycle. All events bub
 | `h:before-swap` | Yes | `{ cfg, response, html, swap }` | After response, before swap. Cancel to skip the swap. `swap(html, response?)` re-enters the pipeline (see [Deferred / async swaps](#deferred--async-swaps)). |
 | `h:swapped` | No | `{ cfg, response, html }` | After DOM update complete. |
 | `h:error` | No | `{ cfg, response, html }` or `{ cfg, error }` | Request failed or HTTP 4xx/5xx. |
+| `h:busy` | No | `{}` | Dispatched on `<html>` when the first request goes in flight (the `0`→`1` edge). See [Global busy state](#global-busy-state-data-h-busy). |
+| `h:idle` | No | `{}` | Dispatched on `<html>` when the last in-flight request settles (the `1`→`0` edge). |
 
 ### Configuration Object (cfg)
 
@@ -775,6 +779,36 @@ a.h-disabled {
   cursor: not-allowed;
 }
 ```
+
+### Global busy state (`data-h-busy`)
+
+While one or more HelmJS requests are in flight, HelmJS sets a boolean
+`data-h-busy` attribute on `<html>` (`document.documentElement`) and removes it
+when the last one settles. This is the global counterpart to per-element
+`h-indicator`/`.h-loading`: a site-wide loader (progress bar, busy cursor, dimmed
+shell) becomes pure CSS with no per-element plumbing, even across boosted links
+inside user-generated content.
+
+```css
+#progress { transform: scaleX(0); transform-origin: left; transition: transform .2s; }
+html[data-h-busy] #progress { animation: indeterminate 1s linear infinite; }
+html[data-h-busy] { cursor: progress; }
+```
+
+Details:
+
+- **Reference-counted.** Concurrent requests increment a counter; the attribute
+  is toggled only on the `0`↔`1` edge, so overlapping requests never clear it
+  early. It covers success, error, and abort.
+- **Background work is quiet by default.** Requests from background triggers
+  (`h-trigger="every"`, `load`, `intersect`) and `h-prefetch` fetches are
+  excluded, so polling and lazy-loading don't flash the global loader.
+- **`h-busy` overrides per element.** `h-busy="false"` keeps a foreground request
+  out of the count; `h-busy="true"` opts a background trigger in.
+- **JS hook (optional).** Document-level `h:busy` / `h:idle` events fire on the
+  same `0`↔`1` edges for apps that prefer to react in JS rather than CSS.
+- **Purely additive.** Existing apps see no behavior change; the attribute is
+  just there to style or ignore. `h-indicator` / `.h-loading` are unaffected.
 
 ---
 

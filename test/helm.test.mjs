@@ -365,6 +365,113 @@ test('h-disable="<selector>" also disables matched elements', async () => {
 })
 
 // ---------------------------------------------------------------------------
+// data-h-busy: reference-counted global in-flight flag on <html>.
+// ---------------------------------------------------------------------------
+
+const html = () => window.document.documentElement
+const busy = () => html().hasAttribute('data-h-busy')
+
+test('data-h-busy is set on <html> in flight and cleared when it settles', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<a id="a" href="/x" h-get h-target="#out">Go</a><div id="out"></div>')
+  click($('#a'))
+  assert.equal(busy(), true) // in-flight
+  await tick(10)
+  assert.equal(busy(), false) // settled
+})
+
+test('data-h-busy reference-counts concurrent requests (0<->1 edge only)', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<a id="a" href="/a" h-get h-target="#oa">A</a><div id="oa"></div>' +
+        '<a id="b" href="/b" h-get h-target="#ob">B</a><div id="ob"></div>')
+  let busies = 0, idles = 0
+  window.document.addEventListener('h:busy', () => busies++)
+  window.document.addEventListener('h:idle', () => idles++)
+  click($('#a'))
+  click($('#b')) // second request starts while the first is still in flight
+  assert.equal(busy(), true)
+  assert.equal(busies, 1) // attribute toggled once, not per-request
+  await tick(10)
+  assert.equal(busy(), false)
+  assert.equal(idles, 1) // cleared once, only after the last settled
+})
+
+test('data-h-busy is cleared even when the request errors', async () => {
+  setRouter(() => { throw new Error('network down') })
+  mount('<a id="a" href="/x" h-get h-target="#out">Go</a><div id="out"></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal(busy(), false)
+})
+
+test('background triggers (every/load/intersect) do not set data-h-busy', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  let busies = 0
+  window.document.addEventListener('h:busy', () => busies++)
+  mount('<div id="d" h-get="/poll" h-trigger="load" h-target="#out"></div><div id="out"></div>')
+  await tick(10) // load fires on a microtask, then the request settles
+  // The fetch happened, but the background trigger never flipped the flag.
+  assert.ok(captured.fetches.some((f) => f.url.includes('/poll')))
+  assert.equal(busies, 0)
+  assert.equal(busy(), false)
+})
+
+test('h-busy="false" opts a foreground request out of data-h-busy', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<a id="a" href="/x" h-get h-busy="false" h-target="#out">Go</a><div id="out"></div>')
+  click($('#a'))
+  assert.equal(busy(), false)
+  await tick(10)
+  assert.equal(busy(), false)
+})
+
+test('h-busy="true" opts a background trigger into data-h-busy', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  let busies = 0, idles = 0
+  window.document.addEventListener('h:busy', () => busies++)
+  window.document.addEventListener('h:idle', () => idles++)
+  mount('<div id="d" h-get="/poll" h-trigger="load" h-busy="true" h-target="#out"></div><div id="out"></div>')
+  await tick(10) // the load fetch flips the flag on, then clears it on settle
+  assert.equal(busies, 1)
+  assert.equal(idles, 1)
+  assert.equal(busy(), false)
+})
+
+test('a throw during request setup does not strand data-h-busy or the indicator', async () => {
+  // An invalid h-optimistic-target selector makes the setup querySelector throw;
+  // because the affordances are activated inside the try, the finally still
+  // reverts them (and the error surfaces as h:error).
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  let errored = false
+  window.document.addEventListener('h:error', () => { errored = true })
+  mount('<a id="a" href="/x" h-target="#out" h-get h-indicator="#ind" ' +
+        'h-optimistic="class:on" h-optimistic-target=":::">Go</a>' +
+        '<div id="ind"></div><div id="out"></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal(errored, true)
+  assert.equal(busy(), false) // not stranded
+  assert.equal($('#ind').classList.contains('h-loading'), false) // indicator cleared
+})
+
+// ---------------------------------------------------------------------------
+// Prefetch (h-prefetch): same-origin only.
+// ---------------------------------------------------------------------------
+
+test('h-prefetch fetches a same-origin href on mouseenter', () => {
+  mount('<a id="a" href="/page" h-get h-prefetch h-target="#out">Go</a><div id="out"></div>')
+  $('#a').dispatchEvent(new window.Event('mouseenter'))
+  assert.ok(captured.fetches.some((f) => f.url.includes('/page')))
+})
+
+test('h-prefetch never fires a cross-origin GET', () => {
+  mount('<a id="a" href="https://evil.example/track" h-get h-prefetch h-target="#out">Go</a><div id="out"></div>')
+  $('#a').dispatchEvent(new window.Event('mouseenter'))
+  $('#a').dispatchEvent(new window.Event('focus'))
+  assert.equal(captured.fetches.length, 0)
+})
+
+// ---------------------------------------------------------------------------
 // h:before-swap (renamed from h:after): fires after response, before swap.
 // ---------------------------------------------------------------------------
 

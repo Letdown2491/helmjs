@@ -7,6 +7,33 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.11.0] - 2026-06-19
+
+### Added
+- **Global busy state (`data-h-busy`).** While one or more HelmJS requests are in
+  flight, HelmJS sets a boolean `data-h-busy` attribute on `<html>` and removes it
+  when the last one settles, so a site-wide loader (progress bar, busy cursor, dimmed
+  shell) is pure CSS with no per-element plumbing, even across boosted links inside
+  user-generated content. It is reference-counted (toggled only on the `0`↔`1` edge,
+  covering success, error, and abort), so overlapping requests never clear it early.
+  Background work is quiet by default: background triggers (`every`, `load`,
+  `intersect`) and `h-prefetch` fetches are excluded so polling and lazy-loading don't
+  flash the loader. `h-busy` overrides per element: `h-busy="false"` keeps a foreground
+  request out of the count, `h-busy="true"` opts a background one in. Document-level
+  `h:busy` / `h:idle` events fire on the same edges for JS reactors. Purely additive:
+  existing apps see no behavior change, and `h-indicator` / `.h-loading` are unaffected.
+
+### Security
+- **Prefetch is now same-origin only.** `h-prefetch` no longer speculatively fetches a
+  cross-origin `href` on hover/focus/intersect (such a GET can't be read back under
+  CORS anyway, but would still hit a third party with the `H-Request` headers before
+  the user commits).
+- **Request-setup affordances can't be stranded.** The in-flight UI side effects
+  (`h-disable`, the `h-indicator` `.h-loading` class, and the `data-h-busy` counter)
+  are now activated inside the request `try`, so a throw during setup (e.g. an invalid
+  `h-optimistic-target` selector) reverts them via the `finally` instead of leaving
+  controls disabled or the loader stuck.
+
 ## [0.10.0] - 2026-06-19
 
 ### Added

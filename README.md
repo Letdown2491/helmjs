@@ -194,7 +194,7 @@ client-side interaction/UX rather than application-state transitions, and have n
 sensible HATEOAS equivalent:
 
 - **`h-trigger`** (when to fire), **`h-sync`** (abort/drop coordination),
-  **`h-confirm`**, **`h-indicator`**, **`h-disable`**, **`h-scroll`**, **`h-focus`**:
+  **`h-confirm`**, **`h-indicator`**, **`h-busy`**, **`h-disable`**, **`h-scroll`**, **`h-focus`**:
   these describe browser behavior *around* a transition, not the transition itself.
   Encoding them in the response would add weight without making the system more RESTful.
 - **Polling (`h-trigger="every Ns"`)** and **`h-sse`** are real-time transports with
