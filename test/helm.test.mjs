@@ -1278,3 +1278,93 @@ test('optimistic: enhancement-only (no h-optimistic means no class churn)', asyn
   await tick(10)
   assert.equal($('#x').textContent, 'server')
 })
+
+// ---------------------------------------------------------------------------
+// h-scroll: behavior modifier ("<target> [instant|smooth|auto]") and
+// prefers-reduced-motion default. jsdom has no real scrolling, so we spy on
+// window.scrollTo / Element.prototype.scrollIntoView to capture the behavior.
+// ---------------------------------------------------------------------------
+
+const scrollSpy = () => {
+  const calls = []
+  const origScrollTo = window.scrollTo
+  const origIntoView = window.Element.prototype.scrollIntoView
+  window.scrollTo = (opts) => calls.push({ kind: 'scrollTo', ...opts })
+  window.Element.prototype.scrollIntoView = function (opts) { calls.push({ kind: 'intoView', el: this, ...opts }) }
+  const restore = () => { window.scrollTo = origScrollTo; window.Element.prototype.scrollIntoView = origIntoView }
+  return { calls, restore }
+}
+
+const withScroll = (attr, fn) => async () => {
+  const spy = scrollSpy()
+  try {
+    setRouter(() => ({ body: '<p>loaded</p>' }))
+    mount(`<a id="a" href="/x" h-get h-target="#out" h-swap="inner" ${attr}>Go</a><div id="out"></div><div id="scroll-anchor"></div>`)
+    click($('#a'))
+    await tick(10)
+    fn(spy.calls)
+  } finally { spy.restore() }
+}
+
+test('h-scroll: "top" defaults to smooth', withScroll('h-scroll="top"', (calls) => {
+  const c = calls.find((c) => c.kind === 'scrollTo')
+  assert.ok(c, 'window.scrollTo was called')
+  assert.equal(c.top, 0)
+  assert.equal(c.behavior, 'smooth')
+}))
+
+test('h-scroll: "top instant" jumps without animation', withScroll('h-scroll="top instant"', (calls) => {
+  const c = calls.find((c) => c.kind === 'scrollTo')
+  assert.equal(c.behavior, 'auto')
+}))
+
+test('h-scroll: "top auto" jumps without animation', withScroll('h-scroll="top auto"', (calls) => {
+  const c = calls.find((c) => c.kind === 'scrollTo')
+  assert.equal(c.behavior, 'auto')
+}))
+
+test('h-scroll: "top smooth" keeps the animation explicitly', withScroll('h-scroll="top smooth"', (calls) => {
+  const c = calls.find((c) => c.kind === 'scrollTo')
+  assert.equal(c.behavior, 'smooth')
+}))
+
+test('h-scroll: "bottom instant" scrolls to page bottom instantly', withScroll('h-scroll="bottom instant"', (calls) => {
+  const c = calls.find((c) => c.kind === 'scrollTo')
+  assert.equal(c.behavior, 'auto')
+  assert.equal(c.top, window.document.body.scrollHeight)
+}))
+
+test('h-scroll: selector target carries the behavior modifier', withScroll('h-scroll="#scroll-anchor instant"', (calls) => {
+  const c = calls.find((c) => c.kind === 'intoView')
+  assert.ok(c, 'scrollIntoView was called')
+  assert.equal(c.el.id, 'scroll-anchor')
+  assert.equal(c.behavior, 'auto')
+}))
+
+test('h-scroll: prefers-reduced-motion makes the default instant', async () => {
+  const spy = scrollSpy()
+  const orig = globalThis.matchMedia
+  globalThis.matchMedia = (q) => ({ matches: /reduce/.test(q) })
+  try {
+    setRouter(() => ({ body: '<p>loaded</p>' }))
+    mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner" h-scroll="top">Go</a><div id="out"></div>')
+    click($('#a'))
+    await tick(10)
+    const c = spy.calls.find((c) => c.kind === 'scrollTo')
+    assert.equal(c.behavior, 'auto')
+  } finally { spy.restore(); globalThis.matchMedia = orig }
+})
+
+test('h-scroll: explicit smooth overrides prefers-reduced-motion', async () => {
+  const spy = scrollSpy()
+  const orig = globalThis.matchMedia
+  globalThis.matchMedia = (q) => ({ matches: /reduce/.test(q) })
+  try {
+    setRouter(() => ({ body: '<p>loaded</p>' }))
+    mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner" h-scroll="top smooth">Go</a><div id="out"></div>')
+    click($('#a'))
+    await tick(10)
+    const c = spy.calls.find((c) => c.kind === 'scrollTo')
+    assert.equal(c.behavior, 'smooth')
+  } finally { spy.restore(); globalThis.matchMedia = orig }
+})

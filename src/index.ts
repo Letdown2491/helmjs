@@ -81,10 +81,19 @@ const setBusy = (delta: number): void => {
   fire(root, now ? 'h:busy' : 'h:idle')
 }
 
-const doScroll = (el: Element, scroll: string): void => {
-  if (scroll === 'top') window.scrollTo({ top: 0, behavior: 'smooth' })
-  else if (scroll === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
-  else (scroll === 'target' ? el : $(scroll))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+// Resolve the scroll animation for an h-scroll behavior modifier. An explicit
+// `instant`/`auto`/`smooth` token always wins; otherwise we default to `smooth`,
+// but honor prefers-reduced-motion by falling back to an instant jump.
+const scrollBehavior = (token: string | undefined): ScrollBehavior =>
+  (token === 'instant' || token === 'auto') ? 'auto'
+  : token === 'smooth' ? 'smooth'
+  : (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) ? 'auto'
+  : 'smooth'
+
+const doScroll = (el: Element, scroll: string, behavior: ScrollBehavior): void => {
+  if (scroll === 'top') window.scrollTo({ top: 0, behavior })
+  else if (scroll === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior })
+  else (scroll === 'target' ? el : $(scroll))?.scrollIntoView({ behavior, block: 'start' })
 }
 
 const attr = (el: Element, name: string, fallback = ''): string =>
@@ -287,8 +296,11 @@ const applyResponse = async (
   if (gate && (!emit(el, 'before-swap', detail) || taken)) return
 
   html = processOOB(html)
-  const scrollAttr = attr(el, 'h-scroll')
-  const scrollEl = scrollAttr === 'target' ? cfg.target : null
+  // h-scroll value is "<target> [behavior]", e.g. "top instant" or "#anchor smooth".
+  const scrollTok = attr(el, 'h-scroll').split(/\s+/).filter(Boolean)
+  const scrollTarget = scrollTok[0] || ''
+  const scrollBeh = scrollBehavior(scrollTok[1])
+  const scrollEl = scrollTarget === 'target' ? cfg.target : null
   const doIt = () => doSwap(cfg.target, html, cfg.swap)
   // View Transitions are opt-in: instant by default (whole-viewport cross-fades
   // ghost on rapid/concurrent partial swaps), enabled per-swap via cfg.transition
@@ -319,11 +331,11 @@ const applyResponse = async (
   if (!document.contains(el)) emit(document.documentElement, 'swapped', { cfg, response: res, html })
   if (trigAfter) fireTriggers(el, trigAfter)
 
-  if (scrollAttr) {
-    if (scrollAttr === 'target' && cfg.swap === 'outer') {
+  if (scrollTarget) {
+    if (scrollTarget === 'target' && cfg.swap === 'outer') {
       const newEl = scrollEl?.id ? document.getElementById(scrollEl.id) : null
-      if (newEl) newEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    } else doScroll(cfg.target, scrollAttr)
+      if (newEl) newEl.scrollIntoView({ behavior: scrollBeh, block: 'start' })
+    } else doScroll(cfg.target, scrollTarget, scrollBeh)
   }
 
   const focusSel = attr(el, 'h-focus')

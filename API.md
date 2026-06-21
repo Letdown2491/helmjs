@@ -137,7 +137,7 @@ intent (pick a fragment), different layer: the server dictating it from the resp
 | `h-swap` | any | How to insert the response. Default: `inner`. Use `h-swap="morph"` to opt into DOM-diffing. Append a `transition` modifier (`h-swap="inner transition"`) to wrap this swap in a View Transition. Overridable per-response with `H-Reswap`. |
 | `h-transition` | any | Boolean: wrap this swap in a View Transition (same as the `transition` modifier on `h-swap`). See [View Transitions](#view-transitions). |
 | `h-select` | any | CSS selector to extract a fragment from the response before swapping. Overridable per-response with `H-Reselect`. |
-| `h-scroll` | any | Scroll behavior after swap: `top`, `bottom`, `target`, or a CSS selector. |
+| `h-scroll` | any | Scroll after swap: `top`, `bottom`, `target`, or a CSS selector. Append a behavior to control the animation: `top instant`, `#anchor smooth` (`instant`/`auto`/`smooth`). Defaults to `smooth`, but honors `prefers-reduced-motion: reduce` with an instant jump unless `smooth` is given explicitly. |
 | `h-focus` | any | CSS selector for element to focus after swap. |
 
 ### Behavior Modifiers

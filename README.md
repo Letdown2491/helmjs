@@ -141,7 +141,7 @@ Every requesting element must resolve to a **working native control** when JS is
 | Multi-element updates | `h-oob="true"` |
 | Server-driven control | `H-Retarget`, `H-Reswap`, `H-Push-Url`, `H-Redirect`, … (response headers) |
 | Progressive enhancement | `<body h-boost>` upgrades plain `<a>`/`<form>` |
-| Scroll control | `h-scroll="top"` |
+| Scroll control | `h-scroll="top"`, `h-scroll="top instant"` |
 | Focus control | `h-focus="#input"` |
 | History | `h-push-url` |
 

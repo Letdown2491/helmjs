@@ -7,6 +7,19 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.12.0] - 2026-06-21
+
+### Added
+- **Configurable `h-scroll` animation.** `h-scroll` now accepts an optional
+  behavior modifier after the target: `h-scroll="top instant"`,
+  `h-scroll="#anchor smooth"`, etc. (`instant`/`auto`/`smooth`). This gives
+  per-element control over the post-swap scroll, so a boosted full-page
+  navigation can jump to the top the way a native navigation does instead of
+  animating from a deep scroll position. Behavior defaults to `smooth` as before,
+  and `prefers-reduced-motion: reduce` now downgrades the default to an instant
+  jump (an explicit `smooth` still wins). Purely additive: bare `h-scroll="top"`
+  and friends are unchanged.
+
 ## [0.11.0] - 2026-06-19
 
 ### Added
