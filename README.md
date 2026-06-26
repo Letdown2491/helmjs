@@ -134,7 +134,7 @@ Every requesting element must resolve to a **working native control** when JS is
 | Request coordination | `h-sync="abort"` (cancel stale), `h-sync="drop"` (ignore new) |
 | Infinite scroll | `h-trigger="intersect once"` |
 | Lazy hydration | `h-trigger="load"` (fetch a region as soon as it's in the DOM) |
-| Polling | `h-trigger="every 5s"` |
+| Polling | `h-trigger="every 5s"` (add `visible` to pause while the tab is hidden) |
 | Server-Sent Events | `h-sse="/events"` |
 | Typeahead insert | `h-insert` + `h-insert-target` (e.g. @-mention / :emoji pickers) |
 | Combobox keys | `h-combobox` (Arrow/Enter/Escape navigation of a suggestion dropdown) |
@@ -143,6 +143,7 @@ Every requesting element must resolve to a **working native control** when JS is
 | Progressive enhancement | `<body h-boost>` upgrades plain `<a>`/`<form>` |
 | Scroll control | `h-scroll="top"`, `h-scroll="top instant"` |
 | Focus control | `h-focus="#input"` |
+| Form reset | `h-reset` (clear the originating form after a successful swap) |
 | History | `h-push-url` |
 
 ## Example: Live Search
@@ -194,7 +195,7 @@ client-side interaction/UX rather than application-state transitions, and have n
 sensible HATEOAS equivalent:
 
 - **`h-trigger`** (when to fire), **`h-sync`** (abort/drop coordination),
-  **`h-confirm`**, **`h-indicator`**, **`h-busy`**, **`h-disable`**, **`h-scroll`**, **`h-focus`**:
+  **`h-confirm`**, **`h-indicator`**, **`h-busy`**, **`h-disable`**, **`h-scroll`**, **`h-focus`**, **`h-reset`**:
   these describe browser behavior *around* a transition, not the transition itself.
   Encoding them in the response would add weight without making the system more RESTful.
 - **Polling (`h-trigger="every Ns"`)** and **`h-sse`** are real-time transports with

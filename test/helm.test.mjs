@@ -647,6 +647,68 @@ test('polling flows through the full pipeline (server H-Retarget honored)', asyn
 })
 
 // ---------------------------------------------------------------------------
+// every ... visible: pause ticks while the tab is hidden; fire once on return.
+// jsdom defaults to visible, so we redefine document.hidden and dispatch the
+// visibilitychange event the bundle's listener is bound to.
+// ---------------------------------------------------------------------------
+
+const setHidden = (v) => {
+  Object.defineProperty(window.document, 'hidden', { configurable: true, get: () => v })
+  window.document.dispatchEvent(new window.Event('visibilitychange'))
+}
+
+test('every "visible": skips ticks while the tab is hidden', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  setHidden(true)
+  const root = mount('<a id="a" href="/poll" h-get h-trigger="every 30ms visible" h-target="#out" h-swap="inner">P</a><div id="out"></div>')
+  try {
+    await tick(100)
+    assert.equal(captured.fetches.length, 0, 'no polls fired while hidden')
+  } finally { root.remove(); setHidden(false) }
+})
+
+test('every "visible": fires once immediately on becoming visible (catch-up)', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  setHidden(true)
+  const root = mount('<a id="a" href="/poll" h-get h-trigger="every 30ms visible" h-target="#out" h-swap="inner">P</a><div id="out"></div>')
+  try {
+    await tick(50)
+    assert.equal(captured.fetches.length, 0)
+    setHidden(false) // becoming visible -> catch-up fire, then ticks resume
+    await tick(10)
+    assert.ok(captured.fetches.length >= 1, 'caught up on return')
+    assert.equal($('#out').innerHTML, '<p>tick</p>')
+    const n = captured.fetches.length
+    await tick(70)
+    assert.ok(captured.fetches.length > n, 'interval resumed while visible')
+  } finally { root.remove(); setHidden(false) }
+})
+
+test('every without "visible" keeps polling regardless of tab visibility', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  setHidden(true)
+  const root = mount('<a id="a" href="/poll" h-get h-trigger="every 30ms" h-target="#out" h-swap="inner">P</a><div id="out"></div>')
+  try {
+    await tick(80)
+    assert.ok(captured.fetches.length >= 2, 'unmodified every ignores hidden')
+  } finally { root.remove(); setHidden(false) }
+})
+
+test('every "visible": detaching removes the visibilitychange listener', async () => {
+  setRouter(() => ({ body: '<p>tick</p>' }))
+  const root = mount('<a id="a" href="/poll" h-get h-trigger="every 30ms visible" h-target="#out" h-swap="inner">P</a><div id="out"></div>')
+  // Let one interval tick run so the detach path (clearInterval + cleanup) executes.
+  await tick(40)
+  root.remove()
+  await tick(40)
+  const n = captured.fetches.length
+  // A visibility change after detach must not re-fire (listener was removed).
+  setHidden(false)
+  await tick(20)
+  assert.equal(captured.fetches.length, n, 'no fetch after detach + visibilitychange')
+})
+
+// ---------------------------------------------------------------------------
 // h-trigger="load": fire once on init (lazy hydration), not a silent no-op.
 // ---------------------------------------------------------------------------
 
@@ -1368,3 +1430,49 @@ test('h-scroll: explicit smooth overrides prefers-reduced-motion', async () => {
     assert.equal(c.behavior, 'smooth')
   } finally { spy.restore(); globalThis.matchMedia = orig }
 })
+
+// ---------------------------------------------------------------------------
+// h-reset: clear the originating form after a successful swap (opt-in). Resets
+// the form that triggered the request, not the swap target; never on h:error.
+// ---------------------------------------------------------------------------
+
+test('h-reset: clears the originating form after a successful swap', async () => {
+  setRouter(() => ({ body: '<p>sent</p>' }))
+  // Renders empty (defaultValue ''); the user types, then reset restores the empty default.
+  mount('<form id="f" action="/dm" h-post h-target="#out" h-swap="inner" h-reset><textarea name="body"></textarea></form><div id="out"></div>')
+  $('#f textarea').value = 'hello'
+  submit($('#f'))
+  await tick(10)
+  assert.equal($('#out').innerHTML, '<p>sent</p>')
+  assert.equal($('#f textarea').value, '', 'compose field cleared after submit')
+})
+
+test('h-reset: resets the originating form even when the swap targets elsewhere', async () => {
+  setRouter(() => ({ body: '<li>msg</li>' }))
+  mount('<form id="f" action="/dm" h-post h-target="#dm-messages" h-swap="append" h-reset><textarea name="body"></textarea></form><ul id="dm-messages"></ul>')
+  $('#f textarea').value = 'hi'
+  submit($('#f'))
+  await tick(10)
+  assert.equal($('#dm-messages').children.length, 1, 'message appended to the target')
+  assert.equal($('#f textarea').value, '', 'compose form (not the target) was cleared')
+})
+
+test('h-reset: absent leaves the form values intact (default behavior)', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<form id="f" action="/search" h-post h-target="#out" h-swap="inner"><input name="q" value="kept"></form><div id="out"></div>')
+  $('#f input').value = 'kept'
+  submit($('#f'))
+  await tick(10)
+  assert.equal($('#f input').value, 'kept', 'search field retained without h-reset')
+})
+
+test('h-reset: does not clear the form on a 4xx/5xx error placement', () =>
+  withErrors(async () => {
+    setRouter(() => ({ status: 422, headers: { 'H-Retarget': '#err' }, body: '<p>bad</p>' }))
+    mount('<form id="f" action="/dm" h-post h-target="#out" h-swap="inner" h-reset><textarea name="body"></textarea></form><div id="out"></div><div id="err"></div>')
+    $('#f textarea').value = 'draft'
+    submit($('#f'))
+    await tick(10)
+    assert.equal($('#err').innerHTML, '<p>bad</p>', 'error placed server-side')
+    assert.equal($('#f textarea').value, 'draft', 'draft preserved on error (no reset)')
+  }))

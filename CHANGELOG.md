@@ -7,6 +7,27 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.13.0] - 2026-06-26
+
+### Added
+- **`h-reset`: clear a form after a successful swap.** A boolean opt-in on a
+  `<form>`. After a real swap, HelmJS calls `.reset()` on the form that *triggered*
+  the request (not the swap target), so a compose form that appends its result
+  elsewhere (a sent DM landing in `#dm-messages`) still clears its own fields. It
+  runs only on a successful swap, never on `h:error` or a 4xx/5xx placement, so a
+  draft survives a failed submit. Runs before `h-focus`, so a cleared field is what
+  gets refocused: clear → refocus → ready to type. Opt-in by design: absent, forms
+  keep their values (what search/filter forms want). Replaces the OOB-re-emit-an-
+  empty-field boilerplate apps used to clear compose forms.
+- **`visible` modifier on `every`.** `h-trigger="every 30s visible"` pauses polling
+  while the tab is hidden (`document.hidden`) and fires once immediately on return
+  to catch up, then resumes the interval: no wasted relay/Tor round-trips on a
+  backgrounded tab, and fresh state the instant you come back instead of at the next
+  interval boundary. The catch-up fire inherits `every`'s default `h-sync="abort"`,
+  so returning can't stack requests; the `visibilitychange` listener is removed when
+  the element detaches. Purely additive: bare `every` polls regardless of visibility
+  exactly as before.
+
 ## [0.12.0] - 2026-06-21
 
 ### Added

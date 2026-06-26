@@ -338,6 +338,14 @@ const applyResponse = async (
     } else doScroll(cfg.target, scrollTarget, scrollBeh)
   }
 
+  // h-reset: clear the originating form after a successful swap (opt-in). Resets the
+  // form that triggered the request, not the swap target, so a compose form that
+  // appends elsewhere still clears. Runs only on a real swap (not on h:error).
+  if (has(el, 'h-reset')) {
+    const form = el instanceof HTMLFormElement ? el : el.closest('form')
+    form?.reset()
+  }
+
   const focusSel = attr(el, 'h-focus')
   if (focusSel) ($(focusSel) as HTMLElement | null)?.focus?.()
 
@@ -627,10 +635,24 @@ const init = (el: Element): void => {
       }, { threshold, rootMargin })
       obs.observe(el)
     } else if (event === 'every') {
-      // Polling: re-run the request on an interval, stopping when detached.
+      // Polling: re-run the request on an interval, stopping when detached. The
+      // `visible` modifier pauses ticks while the tab is hidden and fires once on
+      // return (skip background relay round-trips; refresh instantly on focus).
       let ms = 0
       for (const k of mods.keys()) { const t = parseTTL(k); if (t) { ms = t; break } }
-      const id = setInterval(() => document.contains(el) ? handler(new CustomEvent('every')) : clearInterval(id), ms || 30000)
+      const pauseHidden = mods.has('visible')
+      let cleanup = () => {}
+      const tick = () => {
+        if (!document.contains(el)) { clearInterval(id); cleanup(); return }
+        if (pauseHidden && document.hidden) return
+        handler(new CustomEvent('every'))
+      }
+      const id = setInterval(tick, ms || 30000)
+      if (pauseHidden) {
+        const onVis = () => { if (!document.hidden && document.contains(el)) handler(new CustomEvent('every')) }
+        document.addEventListener('visibilitychange', onVis)
+        cleanup = () => document.removeEventListener('visibilitychange', onVis)
+      }
     } else if (event === 'load') {
       // Fire once as soon as the element is wired into the DOM (htmx parity):
       // the lazy-hydration trigger. The native `load` event never fires on an

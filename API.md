@@ -139,6 +139,7 @@ intent (pick a fragment), different layer: the server dictating it from the resp
 | `h-select` | any | CSS selector to extract a fragment from the response before swapping. Overridable per-response with `H-Reselect`. |
 | `h-scroll` | any | Scroll after swap: `top`, `bottom`, `target`, or a CSS selector. Append a behavior to control the animation: `top instant`, `#anchor smooth` (`instant`/`auto`/`smooth`). Defaults to `smooth`, but honors `prefers-reduced-motion: reduce` with an instant jump unless `smooth` is given explicitly. |
 | `h-focus` | any | CSS selector for element to focus after swap. |
+| `h-reset` | `<form>` | Boolean. After a **successful** swap, call `.reset()` on the form that triggered the request (not the swap target), so a compose form that appends its result elsewhere still clears. Opt-in: absent leaves field values intact (what search/filter forms want). Never fires on `h:error` or a 4xx/5xx placement. Runs before `h-focus`, so a cleared field is what gets refocused. |
 
 ### Behavior Modifiers
 
@@ -276,6 +277,7 @@ h-trigger="intersect once threshold:0.5"
 | `passive` | Mark listener as passive. |
 | `from:selector` | Listen for events on another element instead of self. |
 | `delay:<n>[ms\|s\|m]` | Stagger a `load` trigger's fire (see [On load](#on-load-load)). |
+| `visible` | Pause an `every` poll while the tab is hidden (see [Interval](#interval-every)). |
 
 ### The `from:` Modifier
 
@@ -344,6 +346,14 @@ works. See [Polling](#polling).
 ```
 
 `every <n>[ms|s|m]`; default `30s`. Stops when the element leaves the DOM.
+
+Add the `visible` modifier to pause ticks while the tab is backgrounded:
+
+```html
+<div h-get="/feed" h-trigger="every 30s visible" h-target="#feed" h-swap="inner"></div>
+```
+
+While `document.hidden`, ticks are skipped (no wasted round-trips on a hidden tab); the moment the tab becomes visible, the request fires once immediately to catch up, then the interval resumes. The catch-up fire inherits `every`'s default `h-sync="abort"`, so returning to the tab can't stack requests. Without `visible`, `every` polls regardless of visibility.
 
 ### On load (`load`)
 
@@ -507,6 +517,7 @@ the `<div>` form is JS-only (polling has no no-JS equivalent anyway).
 - First request fires after one interval (not immediately).
 - Stops automatically when the element is removed from the DOM.
 - Combine with `h-sync="abort"` to drop overlapping requests when responses are slow.
+- Add the `visible` modifier (`every 30s visible`) to pause polling while the tab is hidden and fire once on return. See [Interval (`every`)](#interval-every).
 
 ---
 
