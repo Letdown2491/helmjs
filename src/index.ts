@@ -469,6 +469,13 @@ const init = (el: Element): void => {
   const sync = attr(el, 'h-sync') || (triggers.some(t => t.split(/\s+/)[0] === 'every') ? 'abort' : '')
 
   const baseHandler = async (evt: Event): Promise<void> => {
+    // Claim the event up front (cancelable ones only) the moment helmjs decides
+    // to handle it: every early return below — a declined h-confirm, a dropped
+    // concurrent request (h-sync="drop"), a setup bail — must NOT fall through to
+    // the browser's native submit/navigation, or a cancelled destructive action
+    // (delete form) would still POST. Degradation is the JS-off path (this
+    // listener never binds), not a mid-handler bail-out.
+    if (evt.cancelable) evt.preventDefault()
     const confirmMsg = attr(el, 'h-confirm')
     if (confirmMsg && !confirm(confirmMsg)) return
 
@@ -554,7 +561,6 @@ const init = (el: Element): void => {
       target, swap, transition, body: isGet || method === 'DELETE' ? null : body, headers
     }
 
-    evt.preventDefault()
     if (!emit(el, 'before-request', { cfg })) return
 
     // h-disable: absent => auto-disable submit controls during mutations only;

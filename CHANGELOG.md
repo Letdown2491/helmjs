@@ -7,6 +7,21 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.14.1] - 2026-07-01
+
+### Fixed
+- **`h-confirm`: a cancelled confirm no longer triggers the native submit.** On a
+  `<form>` (or submit button), declining the `confirm()` dialog returned from the
+  handler *before* `evt.preventDefault()` ran, so the browser performed the native
+  form submission anyway — a cancelled destructive action (a delete form) still
+  POSTed and the page navigated/reloaded (data loss). The default is now claimed
+  at the top of the trigger handler (guarded by `evt.cancelable`) the moment
+  helmjs commits to handling the event, so every early return — a declined
+  `h-confirm` and a dropped concurrent request (`h-sync="drop"`) alike — can no
+  longer fall through to a native submit/navigation. Graceful degradation is
+  unchanged: it's the JS-off path (the listener never binds), not a mid-handler
+  bail-out.
+
 ## [0.14.0] - 2026-07-01
 
 ### Added

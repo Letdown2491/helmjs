@@ -41,6 +41,40 @@ test('degradation: anchor with href IS enhanced (fetch fires, no native nav)', a
 })
 
 // ---------------------------------------------------------------------------
+// h-confirm: a declined confirm must fully cancel — no helmjs request AND no
+// fall-through to the browser's native submit/navigation (destructive-action
+// data-loss guard).
+// ---------------------------------------------------------------------------
+
+const withConfirm = async (answer, fn) => {
+  const orig = globalThis.confirm
+  globalThis.confirm = () => answer
+  try { await fn() } finally { globalThis.confirm = orig }
+}
+
+test('h-confirm: cancelling a delete form fires no request and prevents the native submit', async () => {
+  await withConfirm(false, async () => {
+    mount('<form id="f" action="/thing/delete" method="post" h-post h-confirm="Sure?"><button type="submit">x</button></form>')
+    const evt = new window.SubmitEvent('submit', { bubbles: true, cancelable: true })
+    $('#f').dispatchEvent(evt)
+    await tick(10)
+    assert.equal(captured.fetches.length, 0)          // no helmjs request
+    assert.equal(evt.defaultPrevented, true)          // native POST suppressed
+  })
+})
+
+test('h-confirm: accepting proceeds with the helmjs request', async () => {
+  await withConfirm(true, async () => {
+    setRouter(() => ({ body: '<p>gone</p>' }))
+    mount('<form id="f" action="/thing/delete" method="post" h-post h-target="#out" h-confirm="Sure?"><button type="submit">x</button></form><div id="out"></div>')
+    submit($('#f'))
+    await tick(10)
+    assert.equal(captured.fetches.length, 1)
+    assert.equal($('#out').innerHTML, '<p>gone</p>')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Server-driven control via response headers.
 // ---------------------------------------------------------------------------
 
