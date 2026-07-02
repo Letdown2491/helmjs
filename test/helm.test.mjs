@@ -250,6 +250,47 @@ test('H-Retarget with no match falls back to the original target', async () => {
   assert.equal($('#out').innerHTML, '<p>here</p>')
 })
 
+test('H-Retarget: "this" resolves to the trigger element', async () => {
+  setRouter(() => ({ headers: { 'H-Retarget': 'this', 'H-Reswap': 'outer' }, body: '<button id="a2">done</button>' }))
+  mount('<button id="a" h-post h-get="/x">Go</button><div id="out"></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal($('#a'), null)
+  assert.equal($('#a2').textContent, 'done')
+})
+
+test('H-Retarget: "closest .card" resolves against the trigger, not the document', async () => {
+  setRouter(() => ({ headers: { 'H-Retarget': 'closest .card', 'H-Reswap': 'outer' }, body: '' }))
+  mount('<div class="card" id="c1"><button id="a" h-post h-get="/x">Del</button></div><div class="card" id="c2"></div>')
+  click($('#a'))
+  await tick(10)
+  // Only the trigger's own card is removed; the earlier sibling card stays.
+  assert.equal($('#c1'), null)
+  assert.ok($('#c2'))
+})
+
+test('H-Retarget: "find .slot" resolves to a descendant of the trigger', async () => {
+  setRouter(() => ({ headers: { 'H-Retarget': 'find .slot' }, body: '<p>in</p>' }))
+  mount('<div id="a" h-get="/x"><span class="slot"></span></div><div class="slot" id="outside"></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal($('#a .slot').innerHTML, '<p>in</p>')
+  assert.equal($('#outside').innerHTML, '')
+})
+
+test('H-Retarget: relative miss (trigger removed mid-request) skips the swap, no throw', async () => {
+  setRouter(() => ({ headers: { 'H-Retarget': 'closest .card', 'H-Reswap': 'outer' }, body: '<p>late</p>' }))
+  mount('<div class="card"><button id="a" h-post h-get="/x">Go</button></div><div id="out"></div>')
+  const before = $('#out').innerHTML
+  const btn = $('#a')
+  click(btn)
+  // Remove the trigger's card before the (async) response lands; closest() now
+  // misses and the swap is skipped without throwing.
+  btn.closest('.card').remove()
+  await tick(10)
+  assert.equal($('#out').innerHTML, before)
+})
+
 test('H-Reselect with no match swaps the full response', async () => {
   setRouter(() => ({ headers: { 'H-Reselect': '#nope' }, body: '<p>full</p>' }))
   mount('<a id="a" href="/x" h-get h-target="#out" h-swap="inner">Go</a><div id="out"></div>')
@@ -902,6 +943,34 @@ test('submitter: h-select on the button selects from the response', async () => 
   submitBy($('#f'), $('#b'))
   await tick(10)
   assert.equal($('#out').innerHTML, '<b>pick-me</b>')
+})
+
+// ---------------------------------------------------------------------------
+// H-Current-URL: every helmjs request carries the document's current location.
+// ---------------------------------------------------------------------------
+
+test('H-Current-URL: sent on a plain h-get request (pathname + search)', async () => {
+  location._href = 'http://localhost/bookmarks?foo=bar'
+  mount('<a id="a" href="/x" h-get h-target="#out">Go</a><div id="out"></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal(captured.fetches.at(-1).headers['H-Current-URL'], '/bookmarks?foo=bar')
+})
+
+test('H-Current-URL: sent on boosted navigation', async () => {
+  location._href = 'http://localhost/page'
+  mount('<div h-boost><a id="a" href="/next">Go</a></div>')
+  click($('#a'))
+  await tick(10)
+  assert.equal(captured.fetches.at(-1).headers['H-Current-URL'], '/page')
+})
+
+test('H-Current-URL: sent on prefetch requests', async () => {
+  location._href = 'http://localhost/list'
+  mount('<a id="a" href="/detail" h-get h-prefetch="hover" h-target="#out">Go</a><div id="out"></div>')
+  $('#a').dispatchEvent(new window.MouseEvent('mouseenter', { bubbles: false }))
+  await tick(10)
+  assert.equal(captured.fetches.at(-1).headers['H-Current-URL'], '/list')
 })
 
 test('submitter: h-headers on the button override the form headers', async () => {

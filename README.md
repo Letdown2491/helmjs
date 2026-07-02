@@ -68,7 +68,7 @@ semantics under the `H-` prefix.
 
 | Header | Effect |
 |--------|--------|
-| `H-Retarget: <selector>` | Swap into a different element than the client's `h-target`. Falls back to the original target if the selector matches nothing. |
+| `H-Retarget: <selector>` | Swap into a different element than the client's `h-target`. Also accepts trigger-relative keywords `this` / `closest <sel>` / `find <sel>`, resolved against the requesting element (so a shared control can retarget its own row with no `id`). A plain-selector miss falls back to the original target; a relative miss skips the swap. |
 | `H-Reswap: <strategy>` | Override the swap strategy (`inner`, `outer`, `append`, …). Validated; an unknown value falls back to the element's `h-swap`. |
 | `H-Reselect: <selector>` | Choose which fragment of the response to extract. If it matches nothing, the full response is swapped. |
 | `H-Push-Url: <url \| false>` | Push (or suppress) a history URL; the server picks the canonical URL. |

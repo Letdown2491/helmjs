@@ -829,17 +829,19 @@ HelmJS automatically adds:
 
 ```
 H-Request: true
+H-Current-URL: /bookmarks?foo=bar
 H-Target: <selector>   (when h-target is specified)
 ```
 
 | Header | Value | Description |
 |--------|-------|-------------|
 | `H-Request` | `true` | Always sent. Indicates this is a HelmJS request. |
+| `H-Current-URL` | path + query | Always sent. The document's current location (`location.pathname + location.search`) at request time, on every helmjs-initiated request including boosted nav and prefetch. |
 | `H-Target` | CSS selector | Sent when `h-target` is specified. Contains the target selector value. |
 | `H-Selection-Start` | integer | Caret/selection start of the `h-selection` field (opt-in). |
 | `H-Selection-End` | integer | Caret/selection end of the `h-selection` field (opt-in). |
 
-Use these server-side to detect HelmJS requests and return appropriately scoped HTML fragments. The `H-Target` header allows the server to distinguish between requests targeting different elements and return the most relevant response.
+Use these server-side to detect HelmJS requests and return appropriately scoped HTML fragments. The `H-Target` header allows the server to distinguish between requests targeting different elements and return the most relevant response. `H-Current-URL` lets one shared, unmodified control behave differently depending on the page it was activated from: the server reads the header instead of the page having to thread a per-context flag onto the control (htmx parity: `HX-Current-URL`).
 
 ### Caret position (`h-selection`)
 
@@ -878,7 +880,7 @@ pre-encode layout/routing knowledge. These mirror htmx `HX-*` semantics under th
 
 | Header | Value | Effect |
 |--------|-------|--------|
-| `H-Retarget` | CSS selector | Swap into this element instead of the client's `h-target`. Also applies to 4xx/5xx responses (server-placed errors). If the selector matches nothing, falls back to the original target. |
+| `H-Retarget` | CSS selector or trigger-relative keyword | Swap into this element instead of the client's `h-target`. Also applies to 4xx/5xx responses (server-placed errors). A plain selector resolves document-wide; if it matches nothing, falls back to the original target. **Trigger-relative keywords** resolve against the element that made the request instead of the document (see below). |
 | `H-Reswap` | swap strategy | Override the swap strategy for this response. **Validated** against the known strategies; an unknown value falls back to the element's `h-swap`. |
 | `H-Reselect` | CSS selector | Extract this fragment from the response before swapping. If it matches nothing, the full response is swapped. |
 | `H-Push-Url` | URL or `false` | Push this URL to history (server chooses the canonical URL). `false` suppresses an otherwise-configured push. |
@@ -893,6 +895,42 @@ pre-encode layout/routing knowledge. These mirror htmx `HX-*` semantics under th
 status code. `H-Retarget`/`H-Reswap`/`H-Reselect`, `H-Trigger-After-Swap`, and the
 URL headers apply to the swap (success path), and `H-Retarget`/`H-Reswap`
 additionally redirect error placement.
+
+### Trigger-relative `H-Retarget`
+
+By default `H-Retarget` is a document-wide selector. It also accepts htmx-style
+keywords that resolve against **the element that made the request** (the trigger),
+so the server can retarget "the thing around the button that was clicked" without
+that element needing a pre-assigned `id`:
+
+| Value | Resolves to |
+|-------|-------------|
+| `this` | the trigger element itself |
+| `closest <selector>` | `trigger.closest(selector)` — the nearest matching ancestor (or self) |
+| `find <selector>` | `trigger.querySelector(selector)` — the first matching descendant |
+
+Any other value is a plain `document.querySelector` (unchanged behavior).
+
+The trigger is remembered for the duration of the request, so relative
+resolution still works after an async round-trip. If a relative keyword can't
+resolve when the response lands — most commonly because the trigger (or its row)
+was already removed from the DOM — the swap is **skipped gracefully** (no throw,
+no mis-targeting), rather than falling back to the original target.
+
+This composes with `H-Reswap` and an empty body. A shared, unmodified list-item
+button can dismiss or replace **its own row** entirely from the server response:
+
+```
+H-Retarget: closest .note
+H-Reswap: outer
+```
+
+- empty response body → the whole `.note` card is **removed** in place.
+- a fragment body → the whole `.note` card is **replaced** with it.
+
+Combined with [`H-Current-URL`](#request-headers), one generic control can be
+left alone on one page and dismissed in-place on another, driven entirely by
+response headers with no per-page markup and no id bookkeeping.
 
 ### Error placement
 

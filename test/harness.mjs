@@ -39,6 +39,8 @@ Object.defineProperty(globalThis, 'location', {
     _href: 'http://localhost/',
     get href() { return this._href },
     set href(v) { captured.redirect = v; this._href = v },
+    get pathname() { try { return new URL(this._href).pathname } catch { return '/' } },
+    get search() { try { return new URL(this._href).search } catch { return '' } },
     origin: 'http://localhost',
     reload() { captured.reloaded = true },
   },

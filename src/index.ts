@@ -106,6 +106,28 @@ const selectFragment = (html: string, selector: string): string => {
 
 const ignore = (el: Element): boolean => !!el.closest('[h-ignore]')
 
+// A target value is trigger-relative when it uses an htmx-style keyword resolved
+// against the element that initiated the request rather than the document:
+//   this          -> the trigger itself
+//   closest <sel> -> trigger.closest(sel)
+//   find <sel>    -> trigger.querySelector(sel)
+const isRelTarget = (s: string): boolean => s === 'this' || /^(closest|find)\s/.test(s)
+
+// Resolve a target selector against a trigger element. Relative keywords (above)
+// resolve locally; any other value is a document-wide querySelector (the default
+// H-Retarget behavior). Returns null when a relative keyword can't resolve,
+// including when the trigger was detached mid-request (document.contains guard),
+// so the caller skips the swap rather than targeting a stale/detached node.
+const resolveTarget = (raw: string, trigger: Element): Element | null => {
+  const s = raw.trim()
+  if (!isRelTarget(s)) return $(s)
+  if (!document.contains(trigger)) return null
+  if (s === 'this') return trigger
+  const rest = s.slice(s.indexOf(' ') + 1).trim()
+  if (!rest) return null
+  return s[0] === 'c' ? trigger.closest(rest) : trigger.querySelector(rest)
+}
+
 // Valid swap strategies, used to validate server-supplied H-Reswap values.
 const SWAP_RE = /^(inner|outer|before|after|prepend|append|none|morph)$/
 
@@ -129,8 +151,16 @@ const fireTriggers = (el: Element, spec: string): void => {
   else for (const n of spec.split(',')) { const t = n.trim(); if (t) fire(el, t) }
 }
 
-const hdrs = (tgt?: string | null): Record<string, string> =>
-  tgt ? { 'H-Request': 'true', 'H-Target': tgt } : { 'H-Request': 'true' }
+// Base headers on every helmjs-initiated request (boosted nav, h-get/h-post,
+// triggers, prefetch, history restore). H-Current-URL carries the document's
+// location (pathname + search) so a shared, unmodified control can be given
+// page-dependent behavior server-side without threading a per-context flag onto
+// it. (htmx parity: HX-Current-URL.)
+const hdrs = (tgt?: string | null): Record<string, string> => {
+  const h: Record<string, string> = { 'H-Request': 'true', 'H-Current-URL': location.pathname + location.search }
+  if (tgt) h['H-Target'] = tgt
+  return h
+}
 
 const extractTitle = (html: string): string => {
   const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
@@ -269,11 +299,29 @@ const applyResponse = async (
   const selSel = reSelect ?? selDefault
   if (selSel) html = selectFragment(html, selSel)
   const reTarget = H('H-Retarget')
-  if (reTarget) { const t = $(reTarget); if (t) cfg.target = t }
+  // H-Retarget: relative keywords (this/closest/find) resolve against the
+  // trigger `el` (remembered for the request's duration via this closure); any
+  // other value is a document-wide querySelector. A relative retarget that can't
+  // resolve, e.g. because the trigger's row was already removed, skips the swap
+  // gracefully rather than mis-targeting; a plain selector miss keeps today's
+  // behavior (target unchanged). Composes with H-Reswap and an empty body:
+  // `H-Retarget: closest .note` + `H-Reswap: outer` + empty = remove that card.
+  let skipSwap = false
+  if (reTarget) {
+    const t = resolveTarget(reTarget, el)
+    if (t) cfg.target = t
+    else if (isRelTarget(reTarget.trim())) skipSwap = true
+  }
   const reSwap = H('H-Reswap')
   const validReSwap: SwapStrategy | null = reSwap && SWAP_RE.test(reSwap) ? reSwap as SwapStrategy : null
   if (validReSwap) cfg.swap = validReSwap
-  const histTarget = reTarget || tgtSel || null
+  // A trigger-relative retarget isn't a valid document selector, so never store
+  // it as the history target (popstate would feed it to querySelector and throw);
+  // fall back to the client's own target selector, restoring via full reload if
+  // neither is a plain selector.
+  const histTarget = (reTarget && !isRelTarget(reTarget.trim()) ? reTarget : null) || tgtSel || null
+
+  if (skipSwap) return
 
   if (res.status >= 400) {
     // Error placement: server-driven via H-Retarget, else a conventional

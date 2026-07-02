@@ -7,6 +7,31 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.14.0] - 2026-07-01
+
+### Added
+- **`H-Current-URL` request header.** Every helmjs-initiated request (boosted
+  nav, `h-get`/`h-post` and other triggers, prefetch, and history restore) now
+  carries the document's current location as `H-Current-URL:
+  location.pathname + location.search`. This lets the server give one shared,
+  unmodified control page-dependent behavior based on where it was activated,
+  without the page threading a per-context flag onto the control. htmx parity:
+  `HX-Current-URL`. Purely additive: a header alongside the existing `H-Request`.
+- **Trigger-relative `H-Retarget`.** `H-Retarget` now understands htmx-style
+  keywords resolved against the element that made the request (the trigger)
+  rather than the document: `this` (the trigger itself), `closest <selector>`
+  (`trigger.closest(...)`), and `find <selector>` (`trigger.querySelector(...)`).
+  Any other value keeps the existing document-wide `querySelector` behavior. The
+  trigger is remembered for the request's duration, so relative resolution still
+  works after the async round-trip; if it can't resolve when the response lands
+  (e.g. the trigger's row was already removed), the swap is skipped gracefully
+  (no throw, no mis-target) instead of falling back to the original target. This
+  composes with `H-Reswap` and an empty body: `H-Retarget: closest .note` +
+  `H-Reswap: outer` removes (empty body) or replaces (fragment body) that whole
+  card. Together with `H-Current-URL`, a single generic list-item button can be
+  dismissed/replaced in-place on one page and left alone on another, driven
+  entirely by response headers with no per-page markup and no `id` bookkeeping.
+
 ## [0.13.0] - 2026-06-26
 
 ### Added
