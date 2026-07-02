@@ -138,6 +138,7 @@ Every requesting element must resolve to a **working native control** when JS is
 | Server-Sent Events | `h-sse="/events"` |
 | Typeahead insert | `h-insert` + `h-insert-target` (e.g. @-mention / :emoji pickers) |
 | Combobox keys | `h-combobox` (Arrow/Enter/Escape navigation of a suggestion dropdown) |
+| Dropdown dismiss | `h-dismiss` on a `<details>` (close on outside click / Escape) |
 | Multi-element updates | `h-oob="true"` |
 | Server-driven control | `H-Retarget`, `H-Reswap`, `H-Push-Url`, `H-Redirect`, … (response headers) |
 | Progressive enhancement | `<body h-boost>` upgrades plain `<a>`/`<form>` |
@@ -195,7 +196,7 @@ client-side interaction/UX rather than application-state transitions, and have n
 sensible HATEOAS equivalent:
 
 - **`h-trigger`** (when to fire), **`h-sync`** (abort/drop coordination),
-  **`h-confirm`**, **`h-indicator`**, **`h-busy`**, **`h-disable`**, **`h-scroll`**, **`h-focus`**, **`h-reset`**:
+  **`h-confirm`**, **`h-indicator`**, **`h-busy`**, **`h-disable`**, **`h-scroll`**, **`h-focus`**, **`h-reset`**, **`h-dismiss`**:
   these describe browser behavior *around* a transition, not the transition itself.
   Encoding them in the response would add weight without making the system more RESTful.
 - **Polling (`h-trigger="every Ns"`)** and **`h-sse`** are real-time transports with

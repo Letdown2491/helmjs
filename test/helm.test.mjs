@@ -1579,3 +1579,72 @@ test('h-reset: does not clear the form on a 4xx/5xx error placement', () =>
     assert.equal($('#err').innerHTML, '<p>bad</p>', 'error placed server-side')
     assert.equal($('#f textarea').value, 'draft', 'draft preserved on error (no reset)')
   }))
+
+// ---------------------------------------------------------------------------
+// h-dismiss: opt-in light-dismiss for <details> dropdowns (outside click +
+// Escape). Delegated document listeners, so it applies to swapped-in elements
+// with no per-element init. jsdom implements the native <summary> toggle.
+// ---------------------------------------------------------------------------
+
+const key = (target, k) => target.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
+
+test('h-dismiss: an outside click closes an open dropdown', () => {
+  mount('<details id="d" h-dismiss open><summary>Menu</summary><a id="item" href="/x">Item</a></details><div id="outside">elsewhere</div>')
+  click($('#outside'))
+  assert.equal($('#d').hasAttribute('open'), false)
+})
+
+test('h-dismiss: a click inside the open panel does NOT close it', () => {
+  mount('<details id="d" h-dismiss open><summary>Menu</summary><span id="label">pick</span></details>')
+  click($('#label'))
+  assert.equal($('#d').hasAttribute('open'), true)
+})
+
+test('h-dismiss: clicking the summary opens without immediately re-closing', () => {
+  mount('<details id="d" h-dismiss><summary id="s">Menu</summary><p>body</p></details>')
+  assert.equal($('#d').hasAttribute('open'), false)
+  click($('#s'))
+  assert.equal($('#d').hasAttribute('open'), true)
+})
+
+test('h-dismiss: Escape closes the dropdown holding focus', () => {
+  mount('<details id="d" h-dismiss open><summary>Menu</summary><button id="b">Act</button></details>')
+  key($('#b'), 'Escape')
+  assert.equal($('#d').hasAttribute('open'), false)
+})
+
+test('h-dismiss: Escape from elsewhere closes open dropdowns', () => {
+  mount('<details id="d" h-dismiss open><summary>Menu</summary><p>x</p></details>')
+  key(window.document.body, 'Escape')
+  assert.equal($('#d').hasAttribute('open'), false)
+})
+
+test('h-dismiss: a single outside click closes every open dropdown', () => {
+  mount('<details id="a" h-dismiss open><summary>A</summary></details><details id="b" h-dismiss open><summary>B</summary></details><div id="outside">x</div>')
+  click($('#outside'))
+  assert.equal($('#a').hasAttribute('open'), false)
+  assert.equal($('#b').hasAttribute('open'), false)
+})
+
+test('h-dismiss: composes with a nested form — submit inside submits and keeps it open', async () => {
+  setRouter(() => ({ body: '<p>done</p>' }))
+  mount('<details id="d" h-dismiss open><summary>Confirm</summary><form id="f" action="/thing/delete" method="post" h-post h-target="#out"><button id="del" type="submit">Delete</button></form></details><div id="out"></div>')
+  submitBy($('#f'), $('#del'))
+  await tick(10)
+  assert.equal(captured.fetches.length, 1, 'inner submit still fires the helmjs request')
+  assert.equal($('#out').innerHTML, '<p>done</p>')
+  assert.equal($('#d').hasAttribute('open'), true, 'clicking inside did not dismiss')
+})
+
+test('h-dismiss: an outside click closes the confirm without submitting', () => {
+  mount('<details id="d" h-dismiss open><summary>Confirm</summary><form id="f" action="/thing/delete" method="post" h-post><button type="submit">Delete</button></form></details><div id="outside">x</div>')
+  click($('#outside'))
+  assert.equal($('#d').hasAttribute('open'), false)
+  assert.equal(captured.fetches.length, 0, 'nothing submitted')
+})
+
+test('h-dismiss: a plain <details> without the attribute is unaffected', () => {
+  mount('<details id="faq" open><summary>Q</summary><p>A</p></details><div id="outside">x</div>')
+  click($('#outside'))
+  assert.equal($('#faq').hasAttribute('open'), true, 'genuine disclosure stays open')
+})

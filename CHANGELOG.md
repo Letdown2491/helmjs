@@ -7,6 +7,25 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.14.2] - 2026-07-02
+
+### Added
+- **`h-dismiss`: opt-in light-dismiss for `<details>` dropdowns.** Native
+  `<details>` don't close on an outside click or Escape (the browser only
+  implements that "light dismiss" for the Popover API), so `<details>` used as
+  dropdowns (a menu, a switcher, an inline confirm) stay open until you click
+  their `<summary>` again. Add `h-dismiss` to a `<details>` and, while it's open,
+  a click outside it or an Escape keypress closes it (`removeAttribute('open')`).
+  Opt-in, so genuine disclosure `<details>` (FAQ expandos) are unaffected.
+  Implemented as two delegated document listeners registered once, so it covers
+  every current and future `h-dismiss` element — including server-rendered ones
+  swapped in/out by helmjs — with no per-element wiring. Clicks inside the open
+  panel never dismiss (a `details.contains(target)` check), so it composes with a
+  nested `<form h-post>` (an inline delete-confirm): the submit inside still
+  submits, an outside click just closes it. Multiple open dropdowns all close on
+  one outside click. Enhancement-only: with JS off the `<details>` still toggles
+  via its `<summary>` as before.
+
 ## [0.14.1] - 2026-07-01
 
 ### Fixed

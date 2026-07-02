@@ -15,6 +15,7 @@ Complete API reference and implementation details for HelmJS.
 - [Polling](#polling)
 - [Server-Sent Events](#server-sent-events)
 - [Text Insertion (h-insert)](#text-insertion-h-insert)
+- [Light-dismiss dropdowns (h-dismiss)](#light-dismiss-dropdowns-h-dismiss)
 - [Events](#events)
 - [CSS Classes](#css-classes)
 - [Request Headers](#request-headers)
@@ -167,6 +168,7 @@ intent (pick a fragment), different layer: the server dictating it from the resp
 | `h-insert-replace` | any | Optional regex, matched against the target's value up to the caret; the (caret-anchored) match is replaced by the inserted text instead of a plain insert. |
 | `h-selection` | any | Send a field's caret as `H-Selection-Start`/`H-Selection-End` request headers. No value: the requesting element. Selector: that field. See [Caret position](#caret-position-h-selection). |
 | `h-combobox` | `<input>`/`<textarea>` | CSS selector for the suggestion popup; enables Arrow/Enter/Escape keyboard navigation of its `[role=option]` items. See [Text Insertion](#text-insertion-h-insert). |
+| `h-dismiss` | `<details>` | Opt a `<details>` dropdown into light-dismiss: an outside click or Escape closes it (removes `open`). No request. See [Light-dismiss dropdowns](#light-dismiss-dropdowns-h-dismiss). |
 
 ### History
 
@@ -648,6 +650,54 @@ items, so a closed/empty dropdown leaves normal caret movement and Enter untouch
 
 **Degradation:** like the rest, JS-on only. With JS off the options are still plain
 focusable controls you can Tab to and activate.
+
+---
+
+## Light-dismiss dropdowns (`h-dismiss`)
+
+Native `<details>` make great no-JS dropdowns (a menu, a switcher, an inline
+confirm): they toggle without script and are accessible out of the box. The one
+thing they lack is **light-dismiss** — the browser only closes-on-outside-click
+and closes-on-Escape for the Popover API, not for `<details>`, so a `<details>`
+menu stays open until you click its `<summary>` again.
+
+Add `h-dismiss` to a `<details>` to opt it into that behavior:
+
+```html
+<details h-dismiss>
+  <summary>Account</summary>
+  <nav>
+    <a h-get href="/settings">Settings</a>
+    <a h-post href="/logout">Log out</a>
+  </nav>
+</details>
+```
+
+While an `h-dismiss` `<details>` is open:
+
+- A click **outside** it (anywhere the element doesn't `contains()`) closes it.
+- **Escape** closes it (the one holding focus, else any open ones).
+
+It's **opt-in**, so genuine disclosure widgets (FAQ expandos) are untouched.
+Implemented as two delegated document listeners registered once, so it applies to
+any current or future `h-dismiss` element — including server-rendered ones swapped
+in and out by helmjs — with no per-element wiring.
+
+Clicks **inside** the open panel never dismiss (the `contains()` check excludes
+them), so it composes cleanly:
+
+- Selecting a menu item works; if it triggers a helmjs navigation, the element
+  leaves the DOM on swap as usual.
+- A nested `<form h-post>` (an inline delete-confirm) still submits when you click
+  its button inside the panel; only an outside click closes the confirm without
+  submitting.
+
+Multiple open `h-dismiss` dropdowns all close on a single outside click (each
+fails its own `contains()` check).
+
+**Degradation:** JS-on enhancement only. With JS off the `<details>` still toggles
+via its `<summary>` exactly as before — you just don't get outside-click/Escape
+dismissal.
 
 ---
 

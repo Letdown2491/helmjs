@@ -895,6 +895,31 @@ document.addEventListener('h:error', (e) => {
   }
 })
 
+// h-dismiss: opt a <details> dropdown into "light dismiss" (close on an outside
+// click or Escape), which browsers implement for the Popover API but not for
+// <details>. Opt-in, so disclosure <details> (FAQ expandos) are untouched. Two
+// delegated document listeners, registered once here, cover every current and
+// future [h-dismiss] element (they're server-rendered and swapped in/out), so we
+// never bind per-element. A click on/inside an open dropdown - its <summary>, a
+// menu item, a nested <form h-post>'s submit - is excluded by contains(), so it
+// stays open and keeps working; only clicks outside close it. The <summary>
+// click that opens a details is inside it (and the native toggle runs after this
+// bubble-phase listener anyway), so opening never immediately re-closes.
+const dismissOpen = (): Element[] => [...document.querySelectorAll('details[h-dismiss][open]')]
+document.addEventListener('click', (e) => {
+  const t = e.target as Node
+  for (const d of dismissOpen()) if (!d.contains(t)) d.removeAttribute('open')
+})
+document.addEventListener('keydown', (e) => {
+  if ((e as KeyboardEvent).key !== 'Escape') return
+  const open = dismissOpen()
+  if (!open.length) return
+  // Prefer closing the dropdown holding focus; if focus is elsewhere, close all.
+  const t = e.target as Node
+  const focused = open.filter(d => d.contains(t))
+  for (const d of (focused.length ? focused : open)) d.removeAttribute('open')
+})
+
 history.replaceState({ h: true, url: location.href, target: null, swap: 'inner', select: null, title: document.title } as HState, '')
 
 window.addEventListener('popstate', async (e) => {
