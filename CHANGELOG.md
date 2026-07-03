@@ -7,6 +7,28 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.14.3] - 2026-07-02
+
+### Fixed
+- **Bare mutating-method elements (`h-post`/`h-put`/`h-patch`/`h-delete`) bind
+  on any element again, not just `<form>`.** A form-less control like
+  `<button h-post="/x?y=1" h-target="#z" h-swap="outer">` had gone inert: a click
+  fired no request and bound no handler, even though `h-get` on the same bare
+  button worked. It regressed in the 0.14.x line. The mutating verbs were gated
+  behind two `<form>`-only checks: element discovery (`process`) only matched
+  `form[h-post][action]` and never a bare `[h-post]`, and `findMethod` only
+  resolved a method inside `if (tag === 'FORM')`. Both now mirror `h-get`: the
+  discovery selector matches `[h-post], [h-put], [h-patch], [h-delete]` on any
+  element, and `findMethod` falls back to the `h-{method}` attribute's own value
+  as the URL when the element isn't a form. The request carries no body (data
+  rides the URL query string, e.g. `?token=…`), and `click` is the default
+  trigger, so `h-confirm`, `h-disable`, `h-target`/`h-swap`, and `h-sync` all
+  apply as on any other requesting control. An element with both `h-get` and a
+  mutating verb still resolves to GET (unchanged). The `<form>` path (submitter
+  `formaction`/`formmethod`/`h-*` override, boosted-form method derivation) is
+  untouched. This restores form-less mutations like favorite-toggle stars and
+  Undo buttons, which legitimately shouldn't need a wrapping `<form>`.
+
 ## [0.14.2] - 2026-07-02
 
 ### Added

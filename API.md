@@ -48,16 +48,20 @@ HelmJS is built for developers creating HATEOAS-compliant web applications who w
 | Attribute | Allowed Elements | URL Source |
 |-----------|------------------|------------|
 | `h-get` | any | `href` (`<a>`), `action` (`<form>`), else the `h-get` value |
-| `h-post` | `<form>` only | `action` attribute |
-| `h-put` | `<form>` only | `action` attribute |
-| `h-patch` | `<form>` only | `action` attribute |
-| `h-delete` | `<form>` only | `action` attribute |
+| `h-post` | any | `action` (`<form>`), else the `h-post` value |
+| `h-put` | any | `action` (`<form>`), else the `h-put` value |
+| `h-patch` | any | `action` (`<form>`), else the `h-patch` value |
+| `h-delete` | any | `action` (`<form>`), else the `h-delete` value |
 
 GET is safe/idempotent, so `h-get` is allowed on any element: `<a>`/`<form>` take the
 URL from `href`/`action` (and degrade with JS off), while any other element takes the
 URL from `h-get`'s value (JS-only, for live regions and polling, where there is no
-native control to degrade to). Mutation methods (POST, PUT, PATCH, DELETE) stay
-restricted to `<form>` with a real `action`, for both safety and degradation.
+native control to degrade to). Mutation methods (POST, PUT, PATCH, DELETE) mirror this:
+on a `<form>` they take the URL from `action` and send the fields as the body (degrading
+with JS off); on any other element (a bare `<button>`, `<div>`, …) they take the URL from
+the `h-{method}` value and send no body, so the data must ride the query string
+(`h-post="/fav?id=1"`). The bare form is a JS-only enhancement (a form-less star toggle or
+Undo button) with no native no-JS equivalent.
 
 ---
 
@@ -124,10 +128,10 @@ intent (pick a fragment), different layer: the server dictating it from the resp
 | Attribute | Elements | Description |
 |-----------|----------|-------------|
 | `h-get` | any | AJAX GET request. URL from `href` (`<a>`), `action` (`<form>`), or `h-get`'s own value (any other element). Forms serialize data as query params. The `<a>`/`<form>` forms degrade with JS off; the value form (e.g. on a `<div>`/`<button>`) is JS-only. |
-| `h-post` | `<form>` | AJAX POST request. URL from `action` attribute. |
-| `h-put` | `<form>` | AJAX PUT request. URL from `action` attribute. |
-| `h-patch` | `<form>` | AJAX PATCH request. URL from `action` attribute. |
-| `h-delete` | `<form>` | AJAX DELETE request. URL from `action` attribute. |
+| `h-post` | any | AJAX POST request. URL from `action` (`<form>`, sends fields as body) or the `h-post` value (any other element, no body: data rides the query string). |
+| `h-put` | any | AJAX PUT request. URL from `action` (`<form>`) or the `h-put` value (any other element, no body). |
+| `h-patch` | any | AJAX PATCH request. URL from `action` (`<form>`) or the `h-patch` value (any other element, no body). |
+| `h-delete` | any | AJAX DELETE request. URL from `action` (`<form>`) or the `h-delete` value (any other element, no body). |
 | `h-boost` | container | Upgrade plain `<a href>` / `<form action>` descendants to AJAX partial-swap + push-url navigation, with no other helmjs attributes required. Set `h-boost="false"` on a descendant to opt out. See [Progressive Enhancement](#progressive-enhancement-h-boost). |
 
 ### Response Handling

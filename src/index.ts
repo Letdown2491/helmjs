@@ -448,6 +448,13 @@ const findMethod = (el: Element): { method: HttpMethod; action: string } | null 
     // Boosted form: derive the method from the native form (GET or POST only).
     if (boost) return { method: (el.getAttribute('method') || 'get').toUpperCase() === 'POST' ? 'POST' : 'GET', action }
   }
+  // Mutating methods on a NON-form element (bare <button>/<div>/…): action = the
+  // h-{method} value, mirroring h-get on any element. Forms keep their action-based
+  // path above. The body stays null (baseHandler), so these carry data in the URL.
+  for (const m of ['post', 'put', 'patch', 'delete'] as const) {
+    const url = el.getAttribute(`h-${m}`)
+    if (url) return { method: m.toUpperCase() as HttpMethod, action: url }
+  }
   return null
 }
 
@@ -869,7 +876,7 @@ const initEl = (el: Element): void => {
 const process = (node: Node): void => {
   if (!(node instanceof Element) || ignore(node)) return
   initEl(node)
-  node.querySelectorAll('[h-get], form[h-post][action], form[h-put][action], form[h-patch][action], form[h-delete][action], [h-sse], [h-prefetch], [h-insert], [h-combobox]').forEach(initEl)
+  node.querySelectorAll('[h-get], [h-post], [h-put], [h-patch], [h-delete], [h-sse], [h-prefetch], [h-insert], [h-combobox]').forEach(initEl)
   // Boosted plain controls: upgrade native <a href>/<form action> with no h-* attrs.
   if (node.closest('[h-boost]')) node.querySelectorAll('a[href], form[action]').forEach(initEl)
   node.querySelectorAll('[h-boost] a[href], [h-boost] form[action]').forEach(initEl)

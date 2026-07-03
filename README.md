@@ -40,8 +40,8 @@ The server sends HTML, HelmJS swaps it in. That's it.
 
 ## Philosophy
 
-- **`h-get`** works on `<a>` (URL from href) and `<form>` (URL from action, data as query params)
-- **`h-post/put/patch/delete`** only work on `<form>` elements
+- **`h-get`** works on `<a>` (URL from href), `<form>` (URL from action, data as query params), and any other element (URL from `h-get`'s value)
+- **`h-post/put/patch/delete`** work on a `<form>` (URL from action, fields as the body) or on any bare element like a `<button>` (URL from the `h-{method}` value, no body: data rides the query string)
 - Server is the source of truth - no client-side routing or state management
 
 ## HATEOAS posture
@@ -118,6 +118,9 @@ Every requesting element must resolve to a **working native control** when JS is
 - `h-post`/`put`/`patch`/`delete` on `<form>` require a real `action` **and** an
   explicit `method` (`get`/`post`); that's the no-JS submission. (HTML forms only
   support GET/POST natively; PUT/PATCH/DELETE still need a server-side fallback.)
+- `h-post`/`put`/`patch`/`delete` on a bare element (e.g. `<button>`) take the URL
+  from the `h-{method}` value and send no body, so they're JS-only enhancements
+  (a form-less star toggle or Undo button) with no native no-JS equivalent.
 - HelmJS never strips `href`/`action`/`method`, and a control without a usable
   URL is never hijacked (it stays a plain element).
 
@@ -221,8 +224,9 @@ design choices:
   The only non-degrading features are ones with no JS-off equivalent in HTML:
   `h-put`/`h-patch`/`h-delete` (forms submit only GET/POST natively, so use a server
   `_method` override for a native fallback), non-`click`/`submit` `h-trigger` events
-  (including `every`), cross-form `h-include`, `h-sse`, and `h-get` on non-anchor/form
-  elements (which carries its URL in an attribute and has no native control).
+  (including `every`), cross-form `h-include`, `h-sse`, and any method attribute
+  (`h-get`/`h-post`/`h-put`/`h-patch`/`h-delete`) on a non-anchor/form element (which
+  carries its URL in an attribute and has no native control to degrade to).
 
 ## Size
 

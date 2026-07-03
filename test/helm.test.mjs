@@ -41,6 +41,76 @@ test('degradation: anchor with href IS enhanced (fetch fires, no native nav)', a
 })
 
 // ---------------------------------------------------------------------------
+// Bare-element mutating methods: h-post/h-put/h-patch/h-delete bind on any
+// element, not just <form> — the URL is the h-{method} value (mirroring h-get),
+// the body is null (data rides the query string), and click is the default
+// trigger. Regression guard: bare <button h-post> used to go inert.
+// ---------------------------------------------------------------------------
+
+for (const method of ['post', 'put', 'patch', 'delete']) {
+  test(`bare <button h-${method}> click fires ${method.toUpperCase()} with no body and swaps`, async () => {
+    setRouter(() => ({ body: '<p>ok</p>' }))
+    mount(`<div id="wrap"><button id="b" h-${method}="/x?y=1" h-target="#z" h-swap="outer">Go</button></div><div id="host"><div id="z"></div></div>`)
+    click($('#b'))
+    await tick(10)
+    assert.equal(captured.fetches.length, 1)
+    assert.equal(captured.fetches[0].method, method.toUpperCase())
+    assert.equal(captured.fetches[0].url, '/x?y=1')
+    assert.equal(captured.fetches[0].body, null)        // no body sent (data rides the URL)
+    assert.equal($('#z'), null)                          // outer swap replaced #z
+    assert.equal($('#host').innerHTML, '<p>ok</p>')
+  })
+}
+
+test('bare <div h-post> is enhanced too (not just buttons)', async () => {
+  setRouter(() => ({ body: '<p>ok</p>' }))
+  mount('<div id="d" h-post="/x?y=1" h-target="#z" h-swap="inner">Go</div><div id="z"></div>')
+  click($('#d'))
+  await tick(10)
+  assert.equal(captured.fetches.length, 1)
+  assert.equal(captured.fetches[0].method, 'POST')
+  assert.equal(captured.fetches[0].url, '/x?y=1')
+  assert.equal($('#z').innerHTML, '<p>ok</p>')
+})
+
+test('bare h-post + h-get resolves to GET (h-get precedence, unchanged)', async () => {
+  setRouter(() => ({ body: '' }))
+  mount('<button id="b" h-post="/post" h-get="/get" h-target="#z">Go</button><div id="z"></div>')
+  click($('#b'))
+  await tick(10)
+  assert.equal(captured.fetches.length, 1)
+  assert.equal(captured.fetches[0].method, 'GET')
+  assert.equal(captured.fetches[0].url, '/get')
+})
+
+test('bare <button h-delete> honors h-confirm (declined cancels the request)', async () => {
+  await withConfirm(false, async () => {
+    mount('<button id="b" h-delete="/x?id=1" h-confirm="Sure?">Del</button>')
+    click($('#b'))
+    await tick(10)
+    assert.equal(captured.fetches.length, 0)
+  })
+})
+
+test('bare <button h-post> auto-disables itself during the mutation', async () => {
+  let disabledDuring = null
+  setRouter(() => { disabledDuring = $('#b').disabled; return { body: '' } })
+  mount('<button id="b" h-post="/x?y=1" h-target="#z">Go</button><div id="z"></div>')
+  click($('#b'))
+  await tick(10)
+  assert.equal(disabledDuring, true)          // disabled while in-flight
+  assert.equal($('#b').disabled, false)        // re-enabled after
+})
+
+test('bare <button h-post h-sync="abort"> carries an abort signal', async () => {
+  setRouter(() => ({ body: '' }))
+  mount('<button id="b" h-post="/x?y=1" h-sync="abort" h-target="#z">Go</button><div id="z"></div>')
+  click($('#b'))
+  await tick(10)
+  assert.equal(captured.fetches[0].signal, true)
+})
+
+// ---------------------------------------------------------------------------
 // h-confirm: a declined confirm must fully cancel — no helmjs request AND no
 // fall-through to the browser's native submit/navigation (destructive-action
 // data-loss guard).
