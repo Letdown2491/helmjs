@@ -42,6 +42,10 @@ interface ElState { init?: true; abort?: AbortController; sse?: EventSource; ins
 
 interface PrefetchEntry { promise: Promise<{ response: Response; text: string }>; expires: number }
 const prefetchCache = new Map<string, PrefetchEntry>()
+// Hard cap on speculative prefetches held in memory. Hovering/scrolling past many
+// links without clicking would otherwise grow the cache without bound (each entry
+// pins a Response + its text); we sweep expired entries and evict oldest-first.
+const PREFETCH_MAX = 50
 
 const elState = new WeakMap<Element, ElState>()
 const state = (el: Element): ElState => elState.get(el) || (elState.set(el, {}), elState.get(el)!)
@@ -162,11 +166,23 @@ const hdrs = (tgt?: string | null): Record<string, string> => {
   return h
 }
 
+// Merge an h-headers attribute's JSON over a base header set (author override).
+// Malformed JSON is ignored so a typo can't wipe the base headers.
+const mergeHeaders = (base: Record<string, string>, json: string): Record<string, string> => {
+  if (json) try { return { ...base, ...JSON.parse(json) } } catch {}
+  return base
+}
+
 const extractTitle = (html: string): string => {
   const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
   if (m) document.title = m[1].trim()
   return html.replace(/<title[^>]*>[\s\S]*?<\/title>/gi, '')
 }
+
+// Fetch a document/fragment with the standard helm headers and strip its <title>
+// (applying it to document.title). Shared by client-side navigation + history.
+const fetchHtml = async (url: string, tgt?: string | null): Promise<string> =>
+  extractTitle(await (await fetch(url, { headers: hdrs(tgt) })).text())
 
 const parseTrigger = (str: string): { event: string; mods: Map<string, string> } => {
   const parts = str.trim().split(/\s+/), mods = new Map<string, string>()
@@ -418,11 +434,14 @@ const applyResponse = async (
 // restore): fetch HTML, swap the <body>, and record a re-derivable history entry.
 const navigate = async (url: string): Promise<void> => {
   try {
-    const html = extractTitle(await (await fetch(url, { headers: hdrs('body') })).text())
+    const html = await fetchHtml(url, 'body')
     doSwap(document.body, selectFragment(html, 'body'), 'inner')
     history.pushState({ h: true, url, target: 'body', swap: 'inner', select: 'body', title: document.title } as HState, '', url)
   } catch { location.href = url }
 }
+
+// The mutating HTTP verbs, lowercased to match their `h-{method}` attribute names.
+const MUT_METHODS = ['post', 'put', 'patch', 'delete'] as const
 
 const findMethod = (el: Element): { method: HttpMethod; action: string } | null => {
   const tag = el.tagName
@@ -443,7 +462,7 @@ const findMethod = (el: Element): { method: HttpMethod; action: string } | null 
   if (tag === 'FORM') {
     const action = el.getAttribute('action')
     if (!action) return null
-    for (const m of ['post', 'put', 'patch', 'delete'] as const)
+    for (const m of MUT_METHODS)
       if (has(el, `h-${m}`)) return { method: m.toUpperCase() as HttpMethod, action }
     // Boosted form: derive the method from the native form (GET or POST only).
     if (boost) return { method: (el.getAttribute('method') || 'get').toUpperCase() === 'POST' ? 'POST' : 'GET', action }
@@ -451,7 +470,7 @@ const findMethod = (el: Element): { method: HttpMethod; action: string } | null 
   // Mutating methods on a NON-form element (bare <button>/<div>/…): action = the
   // h-{method} value, mirroring h-get on any element. Forms keep their action-based
   // path above. The body stays null (baseHandler), so these carry data in the URL.
-  for (const m of ['post', 'put', 'patch', 'delete'] as const) {
+  for (const m of MUT_METHODS) {
     const url = el.getAttribute(`h-${m}`)
     if (url) return { method: m.toUpperCase() as HttpMethod, action: url }
   }
@@ -522,9 +541,7 @@ const init = (el: Element): void => {
     const swap = (swapParts[0] || 'inner') as SwapStrategy
     const transition = swapParts.includes('transition') || el.hasAttribute('h-transition')
     const selDefault = src('h-select') || (boost ? 'body' : '')
-    const hdrAttr = src('h-headers')
-    let headers = hdrs(tgtSel)
-    if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
+    let headers = mergeHeaders(hdrs(tgtSel), src('h-headers'))
 
     // h-selection: send a field's caret as H-Selection-Start/End so the server can
     // detect the active token exactly (value.slice(0, start)) instead of assuming
@@ -550,7 +567,7 @@ const init = (el: Element): void => {
       if (submitter.hasAttribute('h-get')) {
         method = 'GET'
         const u = submitter.getAttribute('h-get'); if (u) action = u
-      } else for (const m of ['post', 'put', 'patch', 'delete'] as const)
+      } else for (const m of MUT_METHODS)
         if (submitter.hasAttribute(`h-${m}`)) { method = m.toUpperCase() as HttpMethod; break }
     }
     const isGet = method === 'GET'
@@ -666,7 +683,11 @@ const init = (el: Element): void => {
       if ((error as Error).name === 'AbortError') return
       emit(el, 'error', { cfg, error })
     } finally {
-      if (controller) st.abort = undefined
+      // Only clear the abort slot if it still points at THIS request's controller.
+      // A superseded request (aborted by a newer one under h-sync="abort") must not
+      // wipe the successor's controller, or a third request wouldn't abort it and
+      // concurrent swaps could land out of order (the exact thing abort prevents).
+      if (st.abort === controller) st.abort = undefined
       toggleDisabled(disEls, false)
       if (ind) ind.classList.remove('h-loading')
       if (busy) setBusy(-1)
@@ -687,6 +708,10 @@ const init = (el: Element): void => {
       const threshold = parseFloat(mods.get('threshold') ?? '0')
       const rootMargin = mods.get('root-margin') ?? '0px'
       const obs = new IntersectionObserver((entries) => {
+        // Sentinel swapped out of the DOM: the browser reports a final
+        // non-intersecting entry on removal, so disconnect here rather than leaking
+        // the observer + detached element (mirrors the `every` detach guard).
+        if (!document.contains(el)) { obs.disconnect(); return }
         for (const entry of entries) {
           if (entry.isIntersecting) {
             handler(new CustomEvent('intersect', { detail: entry }))
@@ -747,19 +772,14 @@ const initSSE = (el: Element): void => {
   state(el).sse = es
   emit(el, 'sse-connect', { url })
 
-  routes.forEach((r, ev) => {
-    es.addEventListener(ev, (e: MessageEvent) => {
-      const target = $(r.target)
-      if (target) { doSwap(target, processOOB(e.data), r.swap); emit(el, 'sse-message', { event: ev, data: e.data }) }
-    })
-  })
-
-  es.onmessage = (e: MessageEvent) => {
-    if (defTarget) {
-      const target = $(defTarget)
-      if (target) { doSwap(target, processOOB(e.data), defSwap); emit(el, 'sse-message', { data: e.data }) }
-    }
+  // Resolve the target, swap the (OOB-processed) event data, and fire sse-message.
+  const swapMsg = (targetSel: string, swap: SwapStrategy, data: string, extra: object) => {
+    const target = $(targetSel)
+    if (target) { doSwap(target, processOOB(data), swap); emit(el, 'sse-message', { ...extra, data }) }
   }
+
+  routes.forEach((r, ev) => es.addEventListener(ev, (e: MessageEvent) => swapMsg(r.target, r.swap, e.data, { event: ev })))
+  es.onmessage = (e: MessageEvent) => { if (defTarget) swapMsg(defTarget, defSwap, e.data, {}) }
   es.onerror = () => emit(el, 'sse-error', { url })
 }
 
@@ -777,17 +797,21 @@ const initPrefetch = (el: Element): void => {
   const ttl = parseTTL(parts[1]) || 30000
 
   const doPrefetch = () => {
+    const now = Date.now()
     const cached = prefetchCache.get(url)
-    if (cached && cached.expires > Date.now()) return
-    let headers = hdrs(attr(el, 'h-target'))
-    const hdrAttr = attr(el, 'h-headers')
-    if (hdrAttr) try { headers = { ...headers, ...JSON.parse(hdrAttr) } } catch {}
+    if (cached && cached.expires > now) return
+    const headers = mergeHeaders(hdrs(attr(el, 'h-target')), attr(el, 'h-headers'))
     const promise = fetch(url, { headers }).then(async response => ({ response, text: await response.text() }))
-    prefetchCache.set(url, { promise, expires: Date.now() + ttl })
+    // Drop stale entries, then bound the cache (Map preserves insertion order, so
+    // deleting the first key evicts the oldest) so it can't grow without limit.
+    for (const [k, v] of prefetchCache) if (v.expires <= now) prefetchCache.delete(k)
+    prefetchCache.set(url, { promise, expires: now + ttl })
+    while (prefetchCache.size > PREFETCH_MAX) prefetchCache.delete(prefetchCache.keys().next().value!)
   }
 
   if (trigger === 'intersect') {
     const obs = new IntersectionObserver((entries) => {
+      if (!document.contains(el)) { obs.disconnect(); return }
       for (const entry of entries) if (entry.isIntersecting) { doPrefetch(); obs.disconnect() }
     })
     obs.observe(el)
@@ -937,7 +961,7 @@ window.addEventListener('popstate', async (e) => {
   const target = $(s.target)
   if (!target) { location.reload(); return }
   try {
-    let html = extractTitle(await (await fetch(s.url, { headers: hdrs(s.target) })).text())
+    let html = await fetchHtml(s.url, s.target)
     if (s.select) html = selectFragment(html, s.select)
     doSwap(target, html, s.swap)
   } catch { location.reload() }

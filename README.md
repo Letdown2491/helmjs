@@ -90,6 +90,20 @@ open-redirect risk, so they require an explicit page-level opt-in:
 `<html h-allow-cross-origin>`. URLs are resolved against `location.href` before the
 origin check, so relative URLs always work.
 
+**Security: HelmJS trusts your server's HTML, so never let untrusted HTML reach the
+DOM unescaped.** Swaps use `innerHTML`/`outerHTML`, so a response containing
+`<img src=x onerror=…>` executes, exactly as with htmx. More subtly, HelmJS
+auto-initializes every `h-*` attribute in any inserted subtree, **including
+user-generated content**: a stored comment like
+`<button h-post="/account/close" h-trigger="load">` would fire a same-origin,
+cookie-bearing request the moment it renders, turning HTML injection into automatic
+CSRF. Escape user content on the server (the usual XSS defense), and additionally
+wrap any region that renders raw user HTML in `[h-ignore]` so HelmJS skips it:
+
+```html
+<div h-ignore><!-- user-authored markdown/HTML: no h-* attribute here is activated --></div>
+```
+
 **H-Trigger timing.** `H-Trigger` fires *before* the swap (matching htmx's
 `HX-Trigger`), so its handlers observe the pre-swap DOM. Use
 `H-Trigger-After-Swap` when a handler needs to see the newly inserted content.

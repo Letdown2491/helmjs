@@ -1,6 +1,6 @@
 {
   "name": "helmjs",
-  "version": "0.14.3",
+  "version": "0.14.4",
   "description": "The smallest hypermedia library where the server drives every state transition, and it all degrades to plain HTML",
   "type": "module",
   "main": "dist/helm.js",

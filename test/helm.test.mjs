@@ -765,6 +765,26 @@ test('a plain click request has no abort signal by default', async () => {
   assert.equal(captured.fetches[0].signal, false)
 })
 
+test('h-sync="abort": a superseded request does not clear its successor\'s controller', async () => {
+  // A regression guard for the abort slot. Uses a controllable fetch that honors
+  // the abort signal and never resolves, so three clicks stay overlapping and
+  // deterministic: A in flight, B aborts A, C must still be able to abort B.
+  const orig = globalThis.fetch
+  const pending = []
+  globalThis.fetch = (url, opts = {}) => new Promise((_resolve, reject) => {
+    pending.push(opts)
+    opts.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+  })
+  try {
+    mount('<button id="b" h-get="/s" h-sync="abort" h-target="#o">Go</button><div id="o"></div>')
+    click($('#b')); await tick(0)   // A -> in flight
+    click($('#b')); await tick(0)   // B -> aborts A; A's finally must not wipe B
+    click($('#b')); await tick(0)   // C -> must abort B
+    assert.equal(pending[0].signal.aborted, true, 'A was aborted by B')
+    assert.equal(pending[1].signal.aborted, true, 'B was aborted by C (regressed to false before the fix)')
+  } finally { globalThis.fetch = orig }
+})
+
 test('h-get value is the URL source on a non-anchor/form element (div polling)', async () => {
   setRouter((url) => ({ body: `<p>${url}</p>` }))
   mount('<div h-get="/live" h-trigger="every 30ms" h-target="#out" h-swap="inner"></div><div id="out"></div>')

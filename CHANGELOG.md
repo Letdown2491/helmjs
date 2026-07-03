@@ -7,6 +7,47 @@ versions may include breaking changes).
 
 Entries for 0.1.0–0.6.0 are reconstructed from commit history and are approximate.
 
+## [0.14.4] - 2026-07-03
+
+### Fixed
+- **`h-sync="abort"` no longer lets concurrent requests slip through.** The
+  in-flight abort controller lives in a single per-element slot. When a request was
+  superseded (a newer trigger aborted it under `h-sync="abort"`), the aborted
+  request's `finally` unconditionally cleared that slot: but the slot now held the
+  *successor's* controller, so a third trigger found it empty and failed to abort
+  the second request. Two requests could then be in flight at once and their swaps
+  land out of order: the exact race `abort` exists to prevent (search-as-you-type,
+  fast polling). The `finally` now clears the slot only if it still points at its
+  own controller. Confirmed with a regression test (A aborts, B supersedes, C must
+  still abort B).
+
+### Performance
+- **`h-trigger="intersect"` no longer leaks when its sentinel is swapped away.** The
+  `IntersectionObserver` was only disconnected on the `once` modifier, so an
+  intersect trigger removed from the DOM kept the observer (and the detached
+  element) alive. It now disconnects when the element leaves the document, matching
+  the `every` poller's detach guard. Same fix applied to `h-prefetch="intersect"`.
+- **Prefetch cache is now bounded.** Speculative `h-prefetch` entries were only
+  evicted on consumption, so hovering or scrolling past many links without clicking
+  grew the cache without limit (each entry pins a `Response` + its text). It now
+  sweeps expired entries and caps at 50, evicting oldest-first.
+
+### Security
+- **Documented the untrusted-HTML hazard.** Since swaps use `innerHTML`/`outerHTML`
+  and HelmJS auto-initializes `h-*` attributes in any inserted subtree, unescaped
+  user-generated HTML can smuggle in directives (e.g. `h-trigger="load"`) that fire
+  same-origin, cookie-bearing requests: HTML injection escalating to automatic CSRF.
+  The README now spells this out and recommends wrapping raw-user-HTML regions in
+  `[h-ignore]` in addition to normal server-side escaping.
+
+### Changed
+- **Internal refactor, no behavior change.** Consolidated duplicated logic
+  alongside the fixes above: a single `MUT_METHODS` constant for the mutating verbs
+  (was three inline literals), a `mergeHeaders` helper for the `h-headers`
+  JSON-over-base merge (request + prefetch paths), a `fetchHtml` helper for the
+  fetch-and-strip-title dance (client navigation + history restore), and a shared
+  `swapMsg` for the SSE route/default handlers.
+
 ## [0.14.3] - 2026-07-02
 
 ### Fixed
